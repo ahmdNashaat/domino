@@ -305,7 +305,7 @@ io.on('connection', (socket) => {
       curr.lastCaptureGroup = [active, ...swept];
       curr.lastCapture = active;
       room.table = [];
-      event = { type: 'joker', tile: active };
+      event = { type: 'joker', tile: active, tilesSwept: swept };
     } else if (selected.length > 0) {
       // Validate capture
       if (!canCapture(active, selected, room.table)) {
@@ -334,9 +334,9 @@ io.on('connection', (socket) => {
 
       if (basra) {
         curr.basraCount++;
-        event = { type: 'basra', tile: active };
+        event = { type: 'basra', tile: active, tiles: selected };
       } else if (!event) {
-        event = { type: 'capture', tile: active };
+        event = { type: 'capture', tile: active, tiles: selected };
       }
     } else {
       // Drop — رمي على الطاولة
