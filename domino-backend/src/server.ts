@@ -12,7 +12,6 @@ const io = new Server(httpServer, {
 });
 
 type DominoTile = [number, number];
-
 interface Player { id: string; name: string; }
 interface Room {
   code: string;
@@ -40,21 +39,27 @@ io.on('connection', (socket) => {
 
   socket.on('room:create', (data: {
     playerName: string;
-    targetScore: 600 | 1000;
+    targetScore: number;
     timerEnabled: boolean;
     timerSeconds?: number;
+    gameVariant?: string;
   }) => {
     const code = generateCode();
     rooms.set(code, {
       code,
       players: [{ id: socket.id, name: data.playerName }],
       status: 'waiting',
-      targetScore: data.targetScore,
-      timerEnabled: data.timerEnabled,
+      targetScore: data.targetScore ?? 600,
+      timerEnabled: data.timerEnabled ?? false,
       timerSeconds: data.timerSeconds ?? 30,
     });
     socket.join(code);
-    socket.emit('room:created', { roomCode: code });
+    // ✅ أضف playerId
+    socket.emit('room:created', {
+      roomCode: code,
+      playerName: data.playerName,
+      playerId: socket.id,
+    });
     console.log(`[Room Created] ${code}`);
   });
 
@@ -78,25 +83,42 @@ io.on('connection', (socket) => {
     room.status = 'playing';
     socket.join(room.code);
 
-    socket.to(room.code).emit('room:opponent_joined', {
-      opponentName: data.playerName
+    const p0 = room.players[0];
+    const p1 = room.players[1];
+
+    // ✅ أضف playerId في room:joined
+    socket.emit('room:joined', {
+      roomCode: room.code,
+      opponentName: p0.name,
+      playerId: socket.id,
     });
 
-    const firstPlayerId = room.players[Math.random() < 0.5 ? 0 : 1].id;
+    // ✅ ابلّغ اللاعب الأول بالخصم
+    socket.to(room.code).emit('room:opponent_joined', {
+      opponentName: data.playerName,
+    });
 
-    io.to(room.code).emit('game:started', {
-      firstPlayerId,
-      player0Name: room.players[0].name,
-      player1Name: room.players[1].name,
+    // ✅ ابعت لكل لاعب playerId الخاص بيه
+    io.to(p0.id).emit('game:started', {
+      playerId: p0.id,
+      opponentName: p1.name,
       targetScore: room.targetScore,
       timerEnabled: room.timerEnabled,
       timerSeconds: room.timerSeconds,
     });
 
-    console.log(`[Game Started] ${room.code}: ${room.players[0].name} vs ${room.players[1].name}`);
+    io.to(p1.id).emit('game:started', {
+      playerId: p1.id,
+      opponentName: p0.name,
+      targetScore: room.targetScore,
+      timerEnabled: room.timerEnabled,
+      timerSeconds: room.timerSeconds,
+    });
+
+    console.log(`[Game Started] ${room.code}: ${p0.name} vs ${p1.name}`);
   });
 
-  socket.on('game:action', (data: { selectedTableTiles: DominoTile[] }) => {
+  socket.on('game:action', (data: { selectedTiles: DominoTile[] }) => {
     const room = findPlayerRoom(socket.id);
     if (!room) return;
     socket.to(room.code).emit('game:opponent_action', data);
@@ -106,6 +128,16 @@ io.on('connection', (socket) => {
     const room = findPlayerRoom(socket.id);
     if (!room) return;
     socket.to(room.code).emit('game:opponent_drop');
+  });
+
+  socket.on('chat:message', (data: { text: string }) => {
+    const room = findPlayerRoom(socket.id);
+    if (!room) return;
+    const player = room.players.find(p => p.id === socket.id);
+    socket.to(room.code).emit('chat:message', {
+      senderName: player?.name ?? 'لاعب',
+      text: data.text,
+    });
   });
 
   socket.on('room:leave', () => {

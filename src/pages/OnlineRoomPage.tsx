@@ -412,51 +412,20 @@ export default function OnlineRoomPage() {
               {/* Code input display */}
               <div className="w-full bg-card/80 border border-border rounded-2xl p-5 backdrop-blur-sm">
                 <p className="text-sm text-muted-foreground font-arabic text-center mb-4">أدخل كود الغرفة</p>
-                <div className="flex justify-center gap-2 mb-6" dir="ltr">
-                  {roomCodeDigits.map((digit, i) => (
-                    <div
-                      key={i}
-                      className={`w-11 h-13 rounded-lg border-2 flex items-center justify-center transition-all ${
-                        digit
-                          ? 'border-primary/50 bg-secondary'
-                          : i === roomCodeDigits.findIndex(d => d === '')
-                            ? 'border-primary/40 bg-secondary/80'
-                            : 'border-border bg-secondary/40'
-                      }`}
-                    >
-                      <span className="text-xl font-mono font-bold text-foreground">{digit}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Numpad */}
-                <div className="grid grid-cols-3 gap-2 max-w-[240px] mx-auto">
-                  {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(n => (
-                    <motion.button
-                      key={n}
-                      onClick={() => handleNumPad(n)}
-                      className="py-3.5 rounded-xl bg-secondary/80 border border-border text-foreground font-mono font-bold text-xl hover:bg-secondary transition-colors"
-                      whileTap={{ scale: 0.92 }}
-                    >
-                      {n}
-                    </motion.button>
-                  ))}
-                  <div />
-                  <motion.button
-                    onClick={() => handleNumPad('0')}
-                    className="py-3.5 rounded-xl bg-secondary/80 border border-border text-foreground font-mono font-bold text-xl hover:bg-secondary transition-colors"
-                    whileTap={{ scale: 0.92 }}
-                  >
-                    0
-                  </motion.button>
-                  <motion.button
-                    onClick={handleBackspace}
-                    className="py-3.5 rounded-xl bg-secondary/80 border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center"
-                    whileTap={{ scale: 0.92 }}
-                  >
-                    <Delete className="w-5 h-5" />
-                  </motion.button>
-                </div>
+                <input
+                  value={roomCodeDigits.join('')}
+                  onChange={e => {
+                    const val = e.target.value.toUpperCase().slice(0, 6);
+                    const arr = val.split('');
+                    while (arr.length < 6) arr.push('');
+                    setRoomCodeDigits(arr);
+                  }}
+                  placeholder="XXXXXX"
+                  maxLength={6}
+                  autoCapitalize="characters"
+                  className="w-full text-center text-4xl font-mono font-bold tracking-[0.5em] py-4 bg-secondary border-2 border-primary/30 rounded-xl text-primary focus:outline-none focus:border-primary/60 transition-colors uppercase placeholder:text-muted-foreground/30 placeholder:tracking-[0.5em]"
+                  dir="ltr"
+                />
               </div>
 
               {error && <p className="text-sm text-destructive font-arabic text-center">{error}</p>}
