@@ -1,0 +1,275 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Cairo:wght@400;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+
+@layer base {
+  :root {
+    /* Backgrounds */
+    --background: 222 60% 5%;
+    --foreground: 225 60% 97%;
+    
+    --bg-void: 222 50% 4%;
+    --bg-surface: 225 45% 10%;
+    --bg-elevated: 225 40% 14%;
+    --bg-card: 225 35% 18%;
+
+    /* Gold System */
+    --primary: 51 100% 50%;
+    --primary-foreground: 222 60% 5%;
+    --gold-warm: 45 90% 57%;
+    --gold-dark: 36 86% 38%;
+    
+    /* Card */
+    --card: 225 35% 18%;
+    --card-foreground: 225 60% 97%;
+
+    /* Popover */
+    --popover: 225 45% 10%;
+    --popover-foreground: 225 60% 97%;
+
+    /* Secondary */
+    --secondary: 225 40% 14%;
+    --secondary-foreground: 225 60% 97%;
+
+    /* Muted */
+    --muted: 225 20% 20%;
+    --muted-foreground: 222 15% 55%;
+
+    /* Accent - Emerald */
+    --accent: 160 100% 39%;
+    --accent-foreground: 222 60% 5%;
+
+    /* Destructive - Crimson */
+    --destructive: 0 100% 63%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Violet for Joker */
+    --violet: 282 39% 53%;
+
+    /* Table Felt */
+    --felt: 140 50% 9%;
+    --felt-border: 140 35% 17%;
+
+    /* Tile */
+    --tile-face: 38 40% 93%;
+    --tile-back: 0 0% 95%;
+    --tile-dot: 240 33% 7%;
+    --tile-divider: 36 86% 38%;
+
+
+    /* Text */
+    --text-primary: 225 60% 97%;
+    --text-secondary: 222 15% 55%;
+
+    --border: 225 30% 18%;
+    --input: 225 30% 18%;
+    --ring: 51 100% 50%;
+    --radius: 0.75rem;
+
+    /* Sidebar */
+    --sidebar-background: 222 60% 5%;
+    --sidebar-foreground: 225 60% 97%;
+    --sidebar-primary: 51 100% 50%;
+    --sidebar-primary-foreground: 222 60% 5%;
+    --sidebar-accent: 225 40% 14%;
+    --sidebar-accent-foreground: 225 60% 97%;
+    --sidebar-border: 225 30% 18%;
+    --sidebar-ring: 51 100% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Cairo', sans-serif;
+    overflow-x: hidden;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Playfair Display', serif;
+  }
+
+  .font-display {
+    font-family: 'Playfair Display', serif;
+  }
+
+  .font-arabic {
+    font-family: 'Cairo', sans-serif;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Gold Gradient */
+.gold-gradient {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--gold-warm)), hsl(var(--gold-dark)));
+}
+
+.gold-text {
+  background: linear-gradient(135deg, hsl(var(--gold-warm)), hsl(var(--gold-dark)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gold-border {
+  border-color: hsl(51, 100%, 50%);
+}
+
+.gold-glow {
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.3), 0 0 60px rgba(255, 215, 0, 0.1);
+}
+
+.gold-glow-strong {
+  box-shadow: 0 0 30px rgba(255, 215, 0, 0.5), 0 0 80px rgba(255, 215, 0, 0.2);
+}
+
+
+/* Tile styles */
+/* Tile styles */
+.tile-face {
+  background: linear-gradient(145deg, hsl(var(--tile-face)), hsl(var(--tile-face) / 0.85));
+}
+
+.tile-back {
+  background: linear-gradient(145deg, hsl(var(--tile-back-bg)), hsl(var(--tile-back-bg) / 0.85));
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.12);
+}
+
+/* Felt texture */
+.felt-bg {
+  background: radial-gradient(ellipse at center, hsl(var(--felt) / 1.2) 0%, hsl(var(--felt)) 100%);
+  border: 2px solid hsl(var(--felt-border));
+}
+
+/* Particle keyframes */
+@keyframes float-up {
+  0% { transform: translateY(100vh) scale(0); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 0.8; }
+  100% { transform: translateY(-20px) scale(1); opacity: 0; }
+}
+
+@keyframes pulse-gold {
+  0%, 100% { box-shadow: 0 0 15px rgba(255, 215, 0, 0.3); }
+  50% { box-shadow: 0 0 30px rgba(255, 215, 0, 0.6); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  50% { transform: translateX(5px); }
+  75% { transform: translateX(-5px); }
+}
+
+@keyframes ring-burst {
+  0% { transform: scale(0.5); opacity: 1; border-width: 4px; }
+  100% { transform: scale(3); opacity: 0; border-width: 1px; }
+}
+
+@keyframes sweep-left {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+
+@keyframes count-up {
+  0% { transform: scale(0.5); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-float-up {
+  animation: float-up var(--duration, 4s) var(--delay, 0s) infinite;
+}
+
+.animate-pulse-gold {
+  animation: pulse-gold 2s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background-size: 200% auto;
+  animation: shimmer 3s linear infinite;
+}
+
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+.animate-ring-burst {
+  animation: ring-burst 1s ease-out forwards;
+}
+
+.animate-sweep {
+  animation: sweep-left 0.8s ease-in-out;
+}
+
+/* 3D Perspective for tile flip */
+.perspective-800 {
+  perspective: 800px;
+}
+
+.preserve-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
+/* Diamond pattern for tile backs */
+.diamond-pattern {
+  background-image: 
+    linear-gradient(45deg, hsl(var(--tile-back-pattern) / 0.08) 25%, transparent 25%),
+    linear-gradient(-45deg, hsl(var(--tile-back-pattern) / 0.08) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, hsl(var(--tile-back-pattern) / 0.08) 75%),
+    linear-gradient(-45deg, transparent 75%, hsl(var(--tile-back-pattern) / 0.08) 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(222, 60%, 5%);
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(225, 30%, 25%);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(51, 100%, 50%);
+}
+
+/* Reduced motion for low-end devices */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

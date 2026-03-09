@@ -1,0 +1,155 @@
+import { useEffect, useRef, useCallback } from 'react';
+import { io, Socket } from 'socket.io-client';
+import { useOnlineStore } from '@/store/onlineStore';
+import { useOnlineGameStore, ServerGameState } from '@/store/onlineGameStore';
+import { useChatStore } from '@/store/chatStore';
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+
+let socketInstance: Socket | null = null;
+
+function getSocket(): Socket {
+  if (!socketInstance) {
+    socketInstance = io(BACKEND_URL, {
+      autoConnect: false,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
+  }
+  return socketInstance;
+}
+
+export function useSocket() {
+  const socket = getSocket();
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+
+    if (!socket.connected) socket.connect();
+
+    socket.on('connect', () => {
+      useOnlineStore.getState().setConnected(true);
+    });
+
+    socket.on('disconnect', () => {
+      useOnlineStore.getState().setConnected(false);
+    });
+
+    socket.on('room:created', (data: { roomCode: string; playerName: string; playerId: string }) => {
+      const s = useOnlineStore.getState();
+      s.setRoomCode(data.roomCode);
+      s.setRoomStatus('waiting');
+      s.setIsHost(true);
+      if (data.playerId) {
+        useOnlineGameStore.getState().setMyPlayerId(data.playerId);
+      }
+    });
+
+    socket.on('room:joined', (data: { roomCode: string; opponentName: string; playerId: string }) => {
+      const s = useOnlineStore.getState();
+      s.setRoomCode(data.roomCode);
+      s.setOpponentName(data.opponentName);
+      s.setRoomStatus('waiting');
+      if (data.playerId) {
+        useOnlineGameStore.getState().setMyPlayerId(data.playerId);
+      }
+    });
+
+    socket.on('room:error', (data: { message: string }) => {
+      useOnlineStore.getState().setError(data.message);
+    });
+
+    socket.on('room:opponent_joined', (data: { opponentName: string }) => {
+      useOnlineStore.getState().setOpponentName(data.opponentName);
+    });
+
+    socket.on('game:started', (data: { playerId: string }) => {
+      useOnlineStore.getState().setRoomStatus('playing');
+      if (data.playerId) {
+        useOnlineGameStore.getState().setMyPlayerId(data.playerId);
+      }
+    });
+
+    // Full state sync from server after every action
+    socket.on('game:state', (data: ServerGameState) => {
+      useOnlineGameStore.getState().applyServerState(data);
+    });
+
+    // Game events (basra, bonbona, etc.)
+    socket.on('game:event', (data: { event: any }) => {
+      useOnlineGameStore.getState().setEvent(data.event);
+    });
+
+    // Validation error from server
+    socket.on('game:invalid', (data: { message: string }) => {
+      useOnlineGameStore.getState().setEvent({ type: 'invalid', message: data.message });
+    });
+
+    socket.on('game:opponent_disconnected', () => {
+      useOnlineStore.getState().setRoomStatus('disconnected');
+    });
+
+    socket.on('chat:message', (data: { senderName: string; text: string }) => {
+      useChatStore.getState().addMessage({
+        id: `${Date.now()}-${Math.random()}`,
+        sender: 'opponent',
+        senderName: data.senderName,
+        text: data.text,
+        timestamp: Date.now(),
+      });
+    });
+
+    return () => {
+      // Don't remove listeners on cleanup to keep singleton alive
+    };
+  }, []);
+
+  const createRoom = useCallback((
+    playerName: string,
+    targetScore: number,
+    timerEnabled: boolean,
+    timerSeconds?: number,
+    gameVariant: string = 'koutchina'
+  ) => {
+    useOnlineStore.getState().setRoomStatus('creating');
+    useOnlineStore.getState().setGameVariant(gameVariant as any);
+    socket.emit('room:create', { playerName, targetScore, timerEnabled, timerSeconds, gameVariant });
+  }, []);
+
+  const joinRoom = useCallback((roomCode: string, playerName: string) => {
+    useOnlineStore.getState().setRoomStatus('joining');
+    socket.emit('room:join', { roomCode, playerName });
+  }, []);
+
+  const sendAction = useCallback((selectedTiles: [number, number][]) => {
+    socket.emit('game:action', { selectedTiles });
+  }, []);
+
+  const sendDrop = useCallback(() => {
+    socket.emit('game:drop');
+  }, []);
+
+  const sendChat = useCallback((text: string) => {
+    socket.emit('chat:message', { text });
+    const myName = useOnlineStore.getState().playerName || 'أنا';
+    useChatStore.getState().addMessage({
+      id: `${Date.now()}-${Math.random()}`,
+      sender: 'me',
+      senderName: myName,
+      text,
+      timestamp: Date.now(),
+    });
+  }, []);
+
+  const leaveRoom = useCallback(() => {
+    socket.emit('room:leave');
+    useOnlineStore.getState().resetRoom();
+    useOnlineGameStore.getState().resetOnlineGame();
+    useChatStore.getState().clearMessages();
+  }, []);
+
+  return { createRoom, joinRoom, sendAction, sendDrop, sendChat, leaveRoom, socket };
+}
