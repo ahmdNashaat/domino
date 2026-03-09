@@ -121,12 +121,6 @@ function placeTile(chain: DominoTile[], tile: DominoTile, end: 'left' | 'right')
   }
 }
 
-function getTileTableValue(tile: DominoTile): number {
-  const [a, b] = tile;
-  if (a === 0 && b === 0) return 0;
-  return a + b;
-}
-
 function canPartitionCapture(targetValue: number, selectedTiles: DominoTile[]): boolean {
   if (selectedTiles.length === 0) return false;
   
