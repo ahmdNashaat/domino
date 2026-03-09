@@ -19,7 +19,7 @@ export default function OnlineScorePage() {
   const targetScore = useOnlineGameStore(s => s.targetScore) || 600;
   const roundNumber = useOnlineGameStore(s => s.roundNumber);
   const resetOnlineGame = useOnlineGameStore(s => s.resetOnlineGame);
-  const { leaveRoom } = useSocket();
+  const { leaveRoom, sendNextRound } = useSocket();
 
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
   const isGameOver = phase === 'game_over';
@@ -253,6 +253,17 @@ export default function OnlineScorePage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1.6 }}
         >
+          {!isGameOver && (
+            <motion.button
+              onClick={() => sendNextRound()}
+              className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-primary text-primary-foreground rounded-xl font-arabic font-bold hover:bg-primary/90"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <RotateCcw className="w-4 h-4" />
+              جولة أخرى
+            </motion.button>
+          )}
           <motion.button
             onClick={handleGoHome}
             className="flex-1 flex items-center justify-center gap-2 py-3.5 gold-gradient text-primary-foreground rounded-xl font-arabic font-bold gold-glow"

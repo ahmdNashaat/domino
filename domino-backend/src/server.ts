@@ -121,6 +121,64 @@ function placeTile(chain: DominoTile[], tile: DominoTile, end: 'left' | 'right')
   }
 }
 
+function getTileTableValue(tile: DominoTile): number {
+  const [a, b] = tile;
+  if (a === 0 && b === 0) return 0;
+  return a + b;
+}
+
+function canPartitionCapture(targetValue: number, selectedTiles: DominoTile[]): boolean {
+  if (selectedTiles.length === 0) return false;
+  
+  // Separate blanket tiles (they don't affect sums, captured للwalad for free)
+  const nonBlank = selectedTiles.filter(t => !isBlank(t));
+  
+  // If only blanket tiles selected, that's valid
+  if (nonBlank.length === 0) return true;
+  
+  const values = nonBlank.map(t => getTileTableValue(t));
+  return partitionHelper(values, targetValue, 0);
+}
+
+function partitionHelper(values: number[], target: number, index: number): boolean {
+  if (index === values.length) return true;
+  
+  const remaining = values.slice(index);
+  const subsets = findSubsetsThatSum(remaining, target);
+  
+  for (const subset of subsets) {
+    const leftover = [...remaining];
+    for (const idx of subset.sort((a, b) => b - a)) {
+      leftover.splice(idx, 1);
+    }
+    if (leftover.length === 0 || partitionHelper(leftover, target, 0)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+function findSubsetsThatSum(values: number[], target: number): number[][] {
+  const results: number[][] = [];
+  
+  function bt(start: number, current: number[], currentSum: number) {
+    if (currentSum === target && current.length > 0) {
+      results.push([...current]);
+      return;
+    }
+    if (currentSum > target) return;
+    for (let i = start; i < values.length; i++) {
+      current.push(i);
+      bt(i + 1, current, currentSum + values[i]);
+      current.pop();
+    }
+  }
+  
+  bt(0, [], 0);
+  return results;
+}
+
 function canCapture(active: DominoTile, selected: DominoTile[], table: DominoTile[]): boolean {
   if (selected.length === 0) return false;
   // selected must all be on table
@@ -129,13 +187,24 @@ function canCapture(active: DominoTile, selected: DominoTile[], table: DominoTil
     if (isBlank(s)) return false; // blank frozen
   }
   const activeVal = getTileHandValue(active);
-  const sum = selected.reduce((acc, t) => acc + getTileTableValue(t), 0);
-  return sum === activeVal;
+  // Use partition capture logic instead of simple sum
+  return canPartitionCapture(activeVal, selected);
 }
 
 function isBasra(table: DominoTile[], selected: DominoTile[], active: DominoTile): boolean {
   if (active[0] === 1 && active[1] === 1) return false;
   return selected.length === table.length && table.every(t => selected.some(s => tilesEqual(t, s)));
+}
+
+function checkBonbona(activeTile: DominoTile, opponentLastCaptureGroup: DominoTile[]): boolean {
+  if (opponentLastCaptureGroup.length === 0) return false;
+  if (activeTile[0] === 1 && activeTile[1] === 1) return false; // No bonbona with joker
+  
+  const activeValue = getTileHandValue(activeTile);
+  
+  // bonbona is valid if the opponent's entire last capture group sums to the same value
+  const lastCaptureValue = opponentLastCaptureGroup.reduce((sum, t) => sum + getTileTableValue(t), 0);
+  return lastCaptureValue === activeValue;
 }
 
 function generateCode(): string {
@@ -431,6 +500,9 @@ io.on('connection', (socket) => {
         room.table = [];
         event = { type: 'joker', tile: active, tilesSwept: swept };
       } else if (selected.length > 0) {
+        // Get opponent player
+        const opp = currIdx === 0 ? p1 : p0;
+        
         // Validate capture
         if (!canCapture(active, selected, room.table)) {
           socket.emit('game:invalid', { message: 'الاختيار غير صحيح' });
@@ -440,11 +512,16 @@ io.on('connection', (socket) => {
         const basra = isBasra(room.table, selected, active);
         const captured = [active, ...selected];
 
-        // Bonbona
-        if (bonbona.length > 0) {
-          const opp = currIdx === 0 ? p1 : p0;
-          const validBonbona = bonbona.filter(b => opp.winPile.some(w => tilesEqual(w, b)));
-          if (validBonbona.length > 0) {
+        // Bonbona - can take opponent's last capture if it matches this card's value
+        if (bonbona.length > 0 && checkBonbona(active, opp.lastCaptureGroup)) {
+          // Verify that bonbona tiles match the opponent's last capture group exactly
+          const validBonbona = bonbona.filter(b => 
+            opp.lastCaptureGroup.some(w => tilesEqual(w, b))
+          );
+          if (validBonbona.length > 0 && validBonbona.length === opp.lastCaptureGroup.length) {
+            // Remove entire last capture group from opponent
+            opp.lastCaptureGroup = [];
+            opp.lastCapture = null;
             opp.winPile = opp.winPile.filter(w => !validBonbona.some(b => tilesEqual(b, w)));
             captured.push(...validBonbona);
             event = { type: 'bonbona' };

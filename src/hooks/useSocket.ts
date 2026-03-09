@@ -151,5 +151,9 @@ export function useSocket() {
     useChatStore.getState().clearMessages();
   }, []);
 
-  return { createRoom, joinRoom, sendAction, sendDrop, sendChat, leaveRoom, socket };
+  const sendNextRound = useCallback(() => {
+    socket.emit('game:next_round');
+  }, []);
+
+  return { createRoom, joinRoom, sendAction, sendDrop, sendChat, leaveRoom, sendNextRound, socket };
 }
