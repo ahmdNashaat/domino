@@ -5,6 +5,7 @@ import { useOnlineStore } from '@/store/onlineStore';
 import { useSocket } from '@/hooks/useSocket';
 import PlayerHand from '@/components/game/PlayerHand';
 import TableArea from '@/components/game/TableArea';
+import ChainArea from '@/components/game/ChainArea';
 import WinPile from '@/components/game/WinPile';
 import GameEffects from '@/components/game/GameEffects';
 import GameTopBar from '@/components/game/GameTopBar';
@@ -52,21 +53,21 @@ export default function OnlineGamePage() {
     if (!canAct || !activeTile) return;
     if (isJoker && state.table.length > 0) {
       playCaptureSound();
-      sendAction(state.table.map(t => t as [number, number]));
+      sendAction({ selectedTiles: state.table.map(t => t as [number, number]) });
       state.clearSelections();
       return;
     }
     playDropSound();
-    sendDrop();
+    sendAction({ selectedTiles: [] });
     state.clearSelections();
-  }, [canAct, activeTile, isJoker, state.table, sendAction, sendDrop]);
+  }, [canAct, activeTile, isJoker, state.table, sendAction]);
 
   const handleConfirm = useCallback(() => {
     if (!canAct) return;
     const allSelected = [...state.selectedTableTiles, ...state.selectedBonbonaTiles];
     if (allSelected.length === 0) return;
     playCaptureSound();
-    sendAction(allSelected as [number, number][]);
+    sendAction({ selectedTiles: allSelected as [number, number][], bonbonaTiles: state.selectedBonbonaTiles as [number, number][] });
     state.clearSelections();
   }, [canAct, state.selectedTableTiles, state.selectedBonbonaTiles, sendAction]);
 
@@ -131,23 +132,30 @@ export default function OnlineGamePage() {
           </div>
         </div>
 
-        {/* Table */}
+        {/* Table/Chain */}
         <div className="flex-1 flex flex-col justify-center px-3 py-2 gap-2">
-          <TableArea
-            tiles={state.table}
-            selectedTiles={state.selectedTableTiles}
-            canSelect={canAct && !isJoker}
-            onToggleTile={(tile) => { playSelectSound(); state.selectTableTile(tile); }}
-            invalidPulse={invalidPulse}
-            isWaladActive={isWalad}
-            showConfirm={showConfirm}
-            onConfirm={handleConfirm}
-            activeValue={activeValue}
-            isJoker={isJoker}
-            tableEmpty={state.table.length === 0}
-            canAct={canAct}
-            onDrop={canAct ? handleActiveCardClick : undefined}
-          />
+          {state.variant === 'classic' ? (
+            <ChainArea
+              chain={state.chain}
+              chainEnds={state.chainEnds}
+            />
+          ) : (
+            <TableArea
+              tiles={state.table}
+              selectedTiles={state.selectedTableTiles}
+              canSelect={canAct && !isJoker}
+              onToggleTile={(tile) => { playSelectSound(); state.selectTableTile(tile); }}
+              invalidPulse={invalidPulse}
+              isWaladActive={isWalad}
+              showConfirm={showConfirm}
+              onConfirm={handleConfirm}
+              activeValue={activeValue}
+              isJoker={isJoker}
+              tableEmpty={state.table.length === 0}
+              canAct={canAct}
+              onDrop={canAct ? handleActiveCardClick : undefined}
+            />
+          )}
         </div>
 
         {/* Player row */}

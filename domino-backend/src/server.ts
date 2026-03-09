@@ -28,13 +28,17 @@ interface Room {
   players: [PlayerState, PlayerState] | [PlayerState] | [];
   status: 'waiting' | 'playing';
   table: DominoTile[];
+  chain: DominoTile[]; // for classic
+  chainEnds: [number, number]; // for classic
+  boneyard: DominoTile[]; // for classic
   currentPlayerIndex: 0 | 1;
   targetScore: number;
   timerEnabled: boolean;
   timerSeconds: number;
   roundNumber: number;
-  phase: 'waiting' | 'playing' | 'round_end' | 'game_over';
+  phase: 'waiting' | 'playing' | 'round_end' | 'game_over' | 'blocked';
   activeCardIndex: number;
+  variant: 'koutchina' | 'classic';
 }
 
 const rooms = new Map<string, Room>();
@@ -70,16 +74,51 @@ function getTileTableValue(tile: DominoTile): number {
   return a + b;
 }
 
-function isJoker(tile: DominoTile): boolean {
-  return tile[0] === 1 && tile[1] === 1;
-}
-
 function isBlank(tile: DominoTile): boolean {
   return tile[0] === 0 && tile[1] === 0;
 }
 
 function tilesEqual(a: DominoTile, b: DominoTile): boolean {
   return (a[0] === b[0] && a[1] === b[1]) || (a[0] === b[1] && a[1] === b[0]);
+}
+
+function isDouble(tile: DominoTile): boolean {
+  return tile[0] === tile[1];
+}
+
+function getChainEnds(chain: DominoTile[]): [number, number] {
+  if (chain.length === 0) return [-1, -1];
+  const first = chain[0];
+  const last = chain[chain.length - 1];
+  return [first[0], last[1]];
+}
+
+function canPlayTile(tile: DominoTile, chainEnds: [number, number]): boolean {
+  if (chainEnds[0] === -1) return true;
+  const [left, right] = chainEnds;
+  return tile[0] === left || tile[1] === left || tile[0] === right || tile[1] === right;
+}
+
+function getPlayableEnds(tile: DominoTile, chainEnds: [number, number]): ('left' | 'right')[] {
+  if (chainEnds[0] === -1) return ['left'];
+  const ends: ('left' | 'right')[] = [];
+  const [left, right] = chainEnds;
+  if (tile[0] === left || tile[1] === left) ends.push('left');
+  if (tile[0] === right || tile[1] === right) ends.push('right');
+  return ends;
+}
+
+function placeTile(chain: DominoTile[], tile: DominoTile, end: 'left' | 'right'): DominoTile[] {
+  if (chain.length === 0) return [tile];
+  const [leftEnd, rightEnd] = getChainEnds(chain);
+
+  if (end === 'left') {
+    if (tile[1] === leftEnd) return [tile, ...chain];
+    return [[tile[1], tile[0]] as DominoTile, ...chain];
+  } else {
+    if (tile[0] === rightEnd) return [...chain, tile];
+    return [...chain, [tile[1], tile[0]] as DominoTile];
+  }
 }
 
 function canCapture(active: DominoTile, selected: DominoTile[], table: DominoTile[]): boolean {
@@ -95,7 +134,7 @@ function canCapture(active: DominoTile, selected: DominoTile[], table: DominoTil
 }
 
 function isBasra(table: DominoTile[], selected: DominoTile[], active: DominoTile): boolean {
-  if (isJoker(active)) return false;
+  if (active[0] === 1 && active[1] === 1) return false;
   return selected.length === table.length && table.every(t => selected.some(s => tilesEqual(t, s)));
 }
 
@@ -118,10 +157,13 @@ function sendGameState(room: Room, lastEvent?: any) {
   const [p0, p1] = room.players as [PlayerState, PlayerState];
   const currentId = room.currentPlayerIndex === 0 ? p0.id : p1.id;
 
-  // To player 0
-  io.to(p0.id).emit('game:state', {
+  const state = {
     phase: room.phase,
     table: room.table,
+    chain: room.chain,
+    chainEnds: room.chainEnds,
+    boneyard: room.boneyard,
+    variant: room.variant,
     currentPlayerId: currentId,
     activeCardIndex: room.activeCardIndex,
     roundNumber: room.roundNumber,
@@ -143,17 +185,14 @@ function sendGameState(room: Room, lastEvent?: any) {
     opponentName: p1.name,
     opponentLastCapture: p1.lastCapture,
     opponentLastCaptureGroup: p1.lastCaptureGroup,
-  });
+  };
+
+  // To player 0
+  io.to(p0.id).emit('game:state', state);
 
   // To player 1
   io.to(p1.id).emit('game:state', {
-    phase: room.phase,
-    table: room.table,
-    currentPlayerId: currentId,
-    activeCardIndex: room.activeCardIndex,
-    roundNumber: room.roundNumber,
-    targetScore: room.targetScore,
-    lastEvent: lastEvent || null,
+    ...state,
     myHand: p1.hand,
     myWinPile: p1.winPile,
     myBasraCount: p1.basraCount,
@@ -177,9 +216,17 @@ function startRound(room: Room) {
   const tiles = shuffle(generateTiles());
   const [p0, p1] = room.players as [PlayerState, PlayerState];
 
-  p0.hand = tiles.slice(0, 14);
-  p1.hand = tiles.slice(14, 28);
-  room.table = [];
+  if (room.variant === 'classic') {
+    p0.hand = tiles.slice(0, 7);
+    p1.hand = tiles.slice(7, 14);
+    room.boneyard = tiles.slice(14);
+    room.chain = [];
+    room.chainEnds = [-1, -1];
+  } else {
+    p0.hand = tiles.slice(0, 14);
+    p1.hand = tiles.slice(14, 28);
+    room.table = [];
+  }
   room.phase = 'playing';
   room.activeCardIndex = p0.hand.length - 1; // rightmost = active
   room.currentPlayerIndex = Math.random() < 0.5 ? 0 : 1;
@@ -197,6 +244,23 @@ function advanceTurn(room: Room) {
     return;
   }
 
+  if (room.variant === 'classic') {
+    // Check if current player can play
+    const active = curr.hand[room.activeCardIndex];
+    if (active && canPlayTile(active, room.chainEnds)) {
+      // Can play, continue
+    } else if (room.boneyard.length > 0) {
+      // Can draw, continue
+    } else {
+      // Can't play or draw, pass
+      // For simplicity, end round if blocked
+      room.phase = 'blocked';
+      sendGameState(room, { type: 'block', message: 'اللعبة متوقفة' });
+      setTimeout(() => endRound(room), 1000);
+      return;
+    }
+  }
+
   // انتقل للاعب التاني
   room.currentPlayerIndex = room.currentPlayerIndex === 0 ? 1 : 0;
   const next = room.currentPlayerIndex === 0 ? p0 : p1;
@@ -208,20 +272,29 @@ function advanceTurn(room: Room) {
 function endRound(room: Room) {
   const [p0, p1] = room.players as [PlayerState, PlayerState];
 
-  // الأوراق المتبقية على الطاولة تروح لآخر من أخد
-  // (بسيط: روح لـ p0 لو winPile أكبر)
-  const lastCapturer = p0.winPile.length >= p1.winPile.length ? p0 : p1;
-  lastCapturer.winPile.push(...room.table);
-  room.table = [];
+  if (room.variant === 'classic') {
+    // Calculate scores: negative points for remaining tiles
+    const score0 = -p0.hand.reduce((s, t) => s + t[0] + t[1], 0);
+    const score1 = -p1.hand.reduce((s, t) => s + t[0] + t[1], 0);
+    p0.score = score0;
+    p1.score = score1;
+    p0.cumulativeScore += score0;
+    p1.cumulativeScore += score1;
+  } else {
+    // الأوراق المتبقية على الطاولة تروح لآخر من أخد
+    // (بسيط: روح لـ p0 لو winPile أكبر)
+    const lastCapturer = p0.winPile.length >= p1.winPile.length ? p0 : p1;
+    lastCapturer.winPile.push(...room.table);
+    room.table = [];
 
-  // احسب النقاط
-  const score0 = p0.winPile.reduce((s, t) => s + getTileTableValue(t), 0) + p0.basraCount * 100;
-  const score1 = p1.winPile.reduce((s, t) => s + getTileTableValue(t), 0) + p1.basraCount * 100;
-
-  p0.score = score0;
-  p1.score = score1;
-  p0.cumulativeScore += score0;
-  p1.cumulativeScore += score1;
+    // احسب النقاط
+    const score0 = p0.winPile.reduce((s, t) => s + getTileTableValue(t), 0) + p0.basraCount * 100;
+    const score1 = p1.winPile.reduce((s, t) => s + getTileTableValue(t), 0) + p1.basraCount * 100;
+    p0.score = score0;
+    p1.score = score1;
+    p0.cumulativeScore += score0;
+    p1.cumulativeScore += score1;
+  }
 
   // هل انتهت اللعبة؟
   if (p0.cumulativeScore >= room.targetScore || p1.cumulativeScore >= room.targetScore) {
@@ -241,11 +314,13 @@ io.on('connection', (socket) => {
     const code = generateCode();
     const room: Room = {
       code, players: [createPlayer(socket.id, data.playerName)],
-      status: 'waiting', table: [], currentPlayerIndex: 0,
+      status: 'waiting', table: [], chain: [], chainEnds: [-1, -1], boneyard: [],
+      currentPlayerIndex: 0,
       targetScore: data.targetScore ?? 600,
       timerEnabled: data.timerEnabled ?? false,
       timerSeconds: data.timerSeconds ?? 30,
       roundNumber: 1, phase: 'waiting', activeCardIndex: -1,
+      variant: (data.gameVariant as 'koutchina' | 'classic') || 'koutchina',
     };
     rooms.set(code, room);
     socket.join(code);
@@ -277,7 +352,7 @@ io.on('connection', (socket) => {
     setTimeout(() => startRound(room), 500);
   });
 
-  socket.on('game:action', (data: { selectedTiles: DominoTile[]; bonbonaTiles?: DominoTile[] }) => {
+  socket.on('game:action', (data: { type?: string; end?: string; selectedTiles?: DominoTile[]; bonbonaTiles?: DominoTile[] }) => {
     const room = findRoom(socket.id);
     if (!room || room.phase !== 'playing' || room.players.length < 2) return;
 
@@ -293,62 +368,112 @@ io.on('connection', (socket) => {
     const active = curr.hand[room.activeCardIndex];
     if (!active) { socket.emit('game:invalid', { message: 'مفيش كارت نشط' }); return; }
 
-    const selected = data.selectedTiles || [];
-    const bonbona = data.bonbonaTiles || [];
-
-    let event: any = null;
-
-    if (isJoker(active)) {
-      // Joker يكسح كل الطاولة
-      const swept = [...room.table];
-      curr.winPile.push(active, ...swept);
-      curr.lastCaptureGroup = [active, ...swept];
-      curr.lastCapture = active;
-      room.table = [];
-      event = { type: 'joker', tile: active, tilesSwept: swept };
-    } else if (selected.length > 0) {
-      // Validate capture
-      if (!canCapture(active, selected, room.table)) {
-        socket.emit('game:invalid', { message: 'الاختيار غير صحيح' });
-        return;
-      }
-
-      const basra = isBasra(room.table, selected, active);
-      const captured = [active, ...selected];
-
-      // Bonbona
-      if (bonbona.length > 0) {
-        const opp = currIdx === 0 ? p1 : p0;
-        const validBonbona = bonbona.filter(b => opp.winPile.some(w => tilesEqual(w, b)));
-        if (validBonbona.length > 0) {
-          opp.winPile = opp.winPile.filter(w => !validBonbona.some(b => tilesEqual(b, w)));
-          captured.push(...validBonbona);
-          event = { type: 'bonbona' };
+    if (room.variant === 'classic') {
+      const actionType = data.type;
+      if (actionType === 'play') {
+        const end = data.end as 'left' | 'right';
+        if (!end) {
+          socket.emit('game:invalid', { message: 'end مطلوب' });
+          return;
         }
-      }
-
-      curr.winPile.push(...captured);
-      curr.lastCaptureGroup = captured;
-      curr.lastCapture = active;
-      room.table = room.table.filter(t => !selected.some(s => tilesEqual(s, t)));
-
-      if (basra) {
-        curr.basraCount++;
-        event = { type: 'basra', tile: active, tiles: selected };
-      } else if (!event) {
-        event = { type: 'capture', tile: active, tiles: selected };
+        // Check if can play
+        const canPlay = canPlayTile(active, room.chainEnds);
+        if (!canPlay) {
+          socket.emit('game:invalid', { message: 'مش ممكن تلعب الكارت ده' });
+          return;
+        }
+        const playableEnds = getPlayableEnds(active, room.chainEnds);
+        if (!playableEnds.includes(end)) {
+          socket.emit('game:invalid', { message: 'مش ممكن تلعب في النهاية دي' });
+          return;
+        }
+        // Play the tile
+        room.chain = placeTile(room.chain, active, end);
+        room.chainEnds = getChainEnds(room.chain);
+        curr.hand.splice(room.activeCardIndex, 1);
+        if (curr.hand.length > 0) {
+          room.activeCardIndex = curr.hand.length - 1;
+        } else {
+          room.activeCardIndex = -1;
+        }
+        sendGameState(room, { type: 'play', tile: active, end });
+        setTimeout(() => advanceTurn(room), 300);
+      } else if (actionType === 'draw') {
+        if (room.boneyard.length === 0) {
+          socket.emit('game:invalid', { message: 'البونيارد فاضي' });
+          return;
+        }
+        const drawn = room.boneyard.pop()!;
+        curr.hand.push(drawn);
+        room.activeCardIndex = curr.hand.length - 1;
+        sendGameState(room, { type: 'draw', count: 1 });
+        // Turn continues
+      } else if (actionType === 'pass') {
+        // Pass
+        sendGameState(room, { type: 'pass' });
+        setTimeout(() => advanceTurn(room), 300);
+      } else {
+        socket.emit('game:invalid', { message: 'action غير صحيح' });
       }
     } else {
-      // Drop — رمي على الطاولة
-      room.table.push(active);
-      event = { type: 'drop', tile: active };
+      // Koutchina logic
+      const selected = data.selectedTiles || [];
+      const bonbona = data.bonbonaTiles || [];
+
+      let event: any = null;
+
+      if (active[0] === 1 && active[1] === 1) {
+        // Joker يكسح كل الطاولة
+        const swept = [...room.table];
+        curr.winPile.push(active, ...swept);
+        curr.lastCaptureGroup = [active, ...swept];
+        curr.lastCapture = active;
+        room.table = [];
+        event = { type: 'joker', tile: active, tilesSwept: swept };
+      } else if (selected.length > 0) {
+        // Validate capture
+        if (!canCapture(active, selected, room.table)) {
+          socket.emit('game:invalid', { message: 'الاختيار غير صحيح' });
+          return;
+        }
+
+        const basra = isBasra(room.table, selected, active);
+        const captured = [active, ...selected];
+
+        // Bonbona
+        if (bonbona.length > 0) {
+          const opp = currIdx === 0 ? p1 : p0;
+          const validBonbona = bonbona.filter(b => opp.winPile.some(w => tilesEqual(w, b)));
+          if (validBonbona.length > 0) {
+            opp.winPile = opp.winPile.filter(w => !validBonbona.some(b => tilesEqual(b, w)));
+            captured.push(...validBonbona);
+            event = { type: 'bonbona' };
+          }
+        }
+
+        curr.winPile.push(...captured);
+        curr.lastCaptureGroup = captured;
+        curr.lastCapture = active;
+        room.table = room.table.filter(t => !selected.some(s => tilesEqual(s, t)));
+
+        if (basra) {
+          curr.basraCount++;
+          event = { type: 'basra', tile: active, tiles: selected };
+        } else if (!event) {
+          event = { type: 'capture', tile: active, tiles: selected };
+        }
+      } else {
+        // Drop — رمي على الطاولة
+        room.table.push(active);
+        event = { type: 'drop', tile: active };
+      }
+
+      // شيل الكارت من الإيد
+      curr.hand = curr.hand.filter((_, i) => i !== room.activeCardIndex);
+
+      sendGameState(room, event);
+      setTimeout(() => advanceTurn(room), 300);
     }
-
-    // شيل الكارت من الإيد
-    curr.hand = curr.hand.filter((_, i) => i !== room.activeCardIndex);
-
-    sendGameState(room, event);
-    setTimeout(() => advanceTurn(room), 300);
   });
 
   socket.on('game:drop', () => {

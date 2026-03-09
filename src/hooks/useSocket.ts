@@ -124,8 +124,8 @@ export function useSocket() {
     socket.emit('room:join', { roomCode, playerName });
   }, []);
 
-  const sendAction = useCallback((selectedTiles: [number, number][]) => {
-    socket.emit('game:action', { selectedTiles });
+  const sendAction = useCallback((data: { type?: string; end?: string; selectedTiles?: [number, number][]; bonbonaTiles?: [number, number][] }) => {
+    socket.emit('game:action', data);
   }, []);
 
   const sendDrop = useCallback(() => {

@@ -21,7 +21,7 @@ export default function OnlineRoomPage() {
   const [useCustom, setUseCustom] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [gameVariant, setGameVariant] = useState<GameVariant>('koutchina');
+  const [gameVariant, setGameVariant] = useState<GameVariant>('classic');
 
   const { createRoom, joinRoom, leaveRoom } = useSocket();
   const { connected, roomCode, roomStatus, opponentName, error } = useOnlineStore();

@@ -17,10 +17,15 @@ interface OnlinePlayer {
 export interface OnlineGameState {
   phase: GamePhase;
   table: DominoTile[];
+  chain: DominoTile[]; // for classic
+  chainEnds: [number, number]; // for classic
+  boneyard: DominoTile[]; // for classic
+  variant: 'koutchina' | 'classic';
   me: OnlinePlayer;
   opponent: OnlinePlayer;
   isMyTurn: boolean;
   activeCardIndex: number;
+  selectedTileIndex: number; // for classic
   selectedTableTiles: DominoTile[];
   selectedBonbonaTiles: DominoTile[];
   roundNumber: number;
@@ -29,6 +34,7 @@ export interface OnlineGameState {
   myPlayerId: string; // 'player0' or 'player1'
 
   // Actions (local UI only)
+  selectTile: (index: number) => void; // for classic
   selectTableTile: (tile: DominoTile) => void;
   selectBonbonaTile: (tile: DominoTile) => void;
   clearEvent: () => void;
@@ -44,11 +50,15 @@ export interface OnlineGameState {
 export interface ServerGameState {
   phase: GamePhase;
   table: DominoTile[];
+  chain?: DominoTile[]; // for classic
+  chainEnds?: [number, number]; // for classic
+  boneyard?: DominoTile[]; // for classic
   currentPlayerId: string;
   activeCardIndex: number;
   roundNumber: number;
   targetScore: number;
   lastEvent?: GameEvent | null;
+  variant?: 'koutchina' | 'classic';
 
   // My data
   myHand: DominoTile[];
@@ -86,16 +96,23 @@ const createEmptyPlayer = (name: string): OnlinePlayer => ({
 export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
   phase: 'idle',
   table: [],
+  chain: [],
+  chainEnds: [-1, -1],
+  boneyard: [],
+  variant: 'koutchina',
   me: createEmptyPlayer('أنا'),
   opponent: createEmptyPlayer('الخصم'),
   isMyTurn: false,
   activeCardIndex: -1,
+  selectedTileIndex: -1,
   selectedTableTiles: [],
   selectedBonbonaTiles: [],
   roundNumber: 1,
   targetScore: 600,
   lastEvent: null,
   myPlayerId: '',
+
+  selectTile: (index) => set({ selectedTileIndex: index }),
 
   selectTableTile: (tile) => {
     const state = get();
@@ -140,12 +157,17 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
 
     set({
       phase: data.phase,
-      table: data.table,
+      table: data.table || [],
+      chain: data.chain || [],
+      chainEnds: data.chainEnds || [-1, -1],
+      boneyard: data.boneyard || [],
+      variant: data.variant || 'koutchina',
       isMyTurn,
       activeCardIndex: data.activeCardIndex,
       roundNumber: data.roundNumber,
       targetScore: data.targetScore,
       lastEvent: data.lastEvent || null,
+      selectedTileIndex: -1,
       selectedTableTiles: [],
       selectedBonbonaTiles: [],
       me: {
@@ -177,10 +199,15 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
     set({
       phase: 'idle',
       table: [],
+      chain: [],
+      chainEnds: [-1, -1],
+      boneyard: [],
+      variant: 'koutchina',
       me: createEmptyPlayer('أنا'),
       opponent: createEmptyPlayer('الخصم'),
       isMyTurn: false,
       activeCardIndex: -1,
+      selectedTileIndex: -1,
       selectedTableTiles: [],
       selectedBonbonaTiles: [],
       roundNumber: 1,
