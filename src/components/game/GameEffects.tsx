@@ -42,6 +42,7 @@ function FlyingTile({ tile, index, isMyEvent }: { tile: DominoTile; index: numbe
 }
 
 function DroppingTile({ tile, isMyEvent }: { tile: DominoTile; isMyEvent: boolean }) {
+  if (!tile) return null;
   // Fly from hand (bottom for player, top for opponent) to center (table)
   const startY = isMyEvent ? 200 : -200;
 

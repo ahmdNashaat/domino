@@ -305,7 +305,7 @@ io.on('connection', (socket) => {
       curr.lastCaptureGroup = [active, ...swept];
       curr.lastCapture = active;
       room.table = [];
-      event = { type: 'joker' };
+      event = { type: 'joker', tile: active };
     } else if (selected.length > 0) {
       // Validate capture
       if (!canCapture(active, selected, room.table)) {
@@ -334,12 +334,14 @@ io.on('connection', (socket) => {
 
       if (basra) {
         curr.basraCount++;
-        event = { type: 'basra' };
+        event = { type: 'basra', tile: active };
+      } else if (!event) {
+        event = { type: 'capture', tile: active };
       }
     } else {
       // Drop — رمي على الطاولة
       room.table.push(active);
-      event = { type: 'drop' };
+      event = { type: 'drop', tile: active };
     }
 
     // شيل الكارت من الإيد
@@ -362,7 +364,7 @@ io.on('connection', (socket) => {
     room.table.push(active);
     curr.hand = curr.hand.filter((_, i) => i !== room.activeCardIndex);
 
-    sendGameState(room, { type: 'drop' });
+    sendGameState(room, { type: 'drop', tile: active });
     setTimeout(() => advanceTurn(room), 300);
   });
 
