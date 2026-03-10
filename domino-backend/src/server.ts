@@ -516,29 +516,35 @@ io.on('connection', (socket) => {
         // Get opponent player
         const opp = currIdx === 0 ? p1 : p0;
         
-        // Validate capture
+        // Validate table capture
         if (!canCapture(active, selected, room.table)) {
-          socket.emit('game:invalid', { message: 'الاختيار غير صحيح' });
+          socket.emit('game:invalid', { message: 'الاختيار من الأرض غير صحيح' });
           return;
         }
 
         const basra = isBasra(room.table, selected, active);
-        const captured = [active, ...selected];
+        const captured = [...selected, ...bonbona, active];
 
         // Bonbona - can take opponent's last capture if it matches this card's value
-        if (bonbona.length > 0 && checkBonbona(active, opp.lastCaptureGroup)) {
+        // Bonbona validation is separate from table capture validation
+        if (bonbona.length > 0) {
+          if (!checkBonbona(active, opp.lastCaptureGroup)) {
+            socket.emit('game:invalid', { message: 'البونبونة غير صحيحة' });
+            return;
+          }
           // Verify that bonbona tiles match the opponent's last capture group exactly
           const validBonbona = bonbona.filter(b => 
             opp.lastCaptureGroup.some(w => tilesEqual(w, b))
           );
-          if (validBonbona.length > 0 && validBonbona.length === opp.lastCaptureGroup.length) {
-            // Remove entire last capture group from opponent
-            opp.lastCaptureGroup = [];
-            opp.lastCapture = null;
-            opp.winPile = opp.winPile.filter(w => !validBonbona.some(b => tilesEqual(b, w)));
-            captured.push(...validBonbona);
-            event = { type: 'bonbona' };
+          if (validBonbona.length !== opp.lastCaptureGroup.length) {
+            socket.emit('game:invalid', { message: 'اختار آخر مكسب الخصم كاملاً' });
+            return;
           }
+          // Remove entire last capture group from opponent
+          opp.lastCaptureGroup = [];
+          opp.lastCapture = null;
+          opp.winPile = opp.winPile.filter(w => !validBonbona.some(b => tilesEqual(b, w)));
+          event = { type: 'bonbona' };
         }
 
         curr.winPile.push(...captured);
@@ -548,7 +554,7 @@ io.on('connection', (socket) => {
 
         if (basra) {
           curr.basraCount++;
-          event = { type: 'basra', tile: active, tiles: selected };
+          event = event ? { type: 'basra_bonbona' } : { type: 'basra', tile: active, tiles: selected };
         } else if (!event) {
           event = { type: 'capture', tile: active, tiles: selected };
         }
