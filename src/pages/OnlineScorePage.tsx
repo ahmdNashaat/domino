@@ -30,6 +30,12 @@ export default function OnlineScorePage() {
   const playerWon = pCumScore > oCumScore;
   const isDraw = pCumScore === oCumScore;
   const played = useRef(false);
+  const pCards = Math.max(0, (me?.winPile?.length ?? 0) - (me?.basraCount ?? 0));
+  const oCards = Math.max(0, (opponent?.winPile?.length ?? 0) - (opponent?.basraCount ?? 0));
+  const diff = Math.abs(pCards - oCards);
+  const diffPoints = diff * 10;
+  const pDiffPoints = pCards > oCards ? diffPoints : 0;
+  const oDiffPoints = oCards > pCards ? diffPoints : 0;
 
   const circles = useMemo(() =>
     Array.from({ length: 8 }, (_, i) => ({
@@ -171,8 +177,8 @@ export default function OnlineScorePage() {
           </div>
 
           {[
-            { label: 'كروت المكسب', pVal: me?.winPile?.length ?? 0, oVal: opponent?.winPile?.length ?? 0, delay: 0.4 },
-            { label: 'فرق الكروت\n> 10 = 4', pVal: (me?.winPile?.length ?? 0) > (opponent?.winPile?.length ?? 0) ? ((me?.winPile?.length ?? 0) - (opponent?.winPile?.length ?? 0) >= 10 ? 4 : 0) : 0, oVal: (opponent?.winPile?.length ?? 0) > (me?.winPile?.length ?? 0) ? ((opponent?.winPile?.length ?? 0) - (me?.winPile?.length ?? 0) >= 10 ? 4 : 0) : 0, delay: 0.6 },
+            { label: 'كروت المكسب\n(بدون بصرة)', pVal: pCards, oVal: oCards, delay: 0.4 },
+            { label: 'فرق الكروت\n× 10', pVal: pDiffPoints, oVal: oDiffPoints, delay: 0.6 },
             { label: 'البصرة\n× 100', pVal: (me?.basraCount ?? 0) * 100, oVal: (opponent?.basraCount ?? 0) * 100, delay: 0.8, highlight: true },
           ].map((row, idx) => (
             <div key={idx} className="grid grid-cols-3 border-b border-border/50">
@@ -310,3 +316,5 @@ function PlayerScore({ name, score, color, isPlayer = false }: { name: string; s
     </div>
   );
 }
+
+

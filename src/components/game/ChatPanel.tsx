@@ -59,8 +59,7 @@ export default function ChatPanel() {
       {!isOpen && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed left-3 z-50 p-2.5 rounded-full bg-primary text-primary-foreground shadow-lg hover:scale-105 transition-transform"
-          style={{ bottom: 'calc(100% - 140px)' }}
+          className="fixed right-4 bottom-24 z-50 p-2.5 rounded-full bg-primary text-primary-foreground shadow-lg hover:scale-105 transition-transform"
         >
           <MessageCircle className="w-5 h-5" />
           {unreadCount > 0 && (
@@ -75,11 +74,11 @@ export default function ChatPanel() {
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ x: -300, opacity: 0 }}
+            initial={{ x: 300, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -300, opacity: 0 }}
+            exit={{ x: 300, opacity: 0 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed bottom-0 left-0 z-50 w-72 h-[60vh] max-h-[420px] flex flex-col bg-card border border-border rounded-tr-2xl rounded-tl-none shadow-2xl overflow-hidden"
+            className="fixed bottom-0 right-0 z-50 w-72 h-[60vh] max-h-[420px] flex flex-col bg-card border border-border rounded-tl-2xl rounded-tr-none shadow-2xl overflow-hidden"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-3 py-2 bg-secondary/80 border-b border-border/50">

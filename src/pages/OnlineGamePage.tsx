@@ -64,10 +64,13 @@ export default function OnlineGamePage() {
 
   const handleConfirm = useCallback(() => {
     if (!canAct) return;
-    const allSelected = [...state.selectedTableTiles, ...state.selectedBonbonaTiles];
-    if (allSelected.length === 0) return;
+    const hasSelection = state.selectedTableTiles.length > 0 || state.selectedBonbonaTiles.length > 0;
+    if (!hasSelection) return;
     playCaptureSound();
-    sendAction({ selectedTiles: allSelected as [number, number][], bonbonaTiles: state.selectedBonbonaTiles as [number, number][] });
+    sendAction({
+      selectedTiles: state.selectedTableTiles as [number, number][],
+      bonbonaTiles: state.selectedBonbonaTiles as [number, number][],
+    });
     state.clearSelections();
   }, [canAct, state.selectedTableTiles, state.selectedBonbonaTiles, sendAction]);
 

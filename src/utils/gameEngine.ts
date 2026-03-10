@@ -152,6 +152,7 @@ export function checkBonbona(activeTile: DominoTile, opponentWinPile: DominoTile
   
   // Bonbona: active tile value must equal the LAST SINGLE TILE value captured by opponent
   const lastTile = opponentWinPile[opponentWinPile.length - 1];
+  if (isJokerTile(lastTile)) return false;
   const activeValue = getTileHandValue(activeTile);
   const lastTileValue = getTileTableValue(lastTile);
   
@@ -164,14 +165,16 @@ export function calculateRoundScore(
   playerBasras: number,
   opponentBasras: number
 ): RoundScore {
-  const pCards = playerWinPile.length;
-  const oCards = opponentWinPile.length;
-  const pCardPoints = playerWinPile.reduce((sum, tile) => sum + getTileTableValue(tile), 0);
-  const oCardPoints = opponentWinPile.reduce((sum, tile) => sum + getTileTableValue(tile), 0);
+  const pCards = Math.max(0, playerWinPile.length - playerBasras);
+  const oCards = Math.max(0, opponentWinPile.length - opponentBasras);
+  const diff = Math.abs(pCards - oCards);
+  const diffPoints = diff * 10;
+  const pDiffPoints = pCards > oCards ? diffPoints : 0;
+  const oDiffPoints = oCards > pCards ? diffPoints : 0;
   const pBasraPoints = playerBasras * 100;
   const oBasraPoints = opponentBasras * 100;
-  const playerPoints = pCardPoints + pBasraPoints;
-  const opponentPoints = oCardPoints + oBasraPoints;
+  const playerPoints = pDiffPoints + pBasraPoints;
+  const opponentPoints = oDiffPoints + oBasraPoints;
 
   return {
     playerCards: pCards,
@@ -180,7 +183,7 @@ export function calculateRoundScore(
     opponentBasras: opponentBasras,
     playerPoints,
     opponentPoints,
-    diff: Math.abs(pCardPoints - oCardPoints),
+    diff,
     roundWinner: playerPoints > opponentPoints ? 'player' : opponentPoints > playerPoints ? 'opponent' : 'tie',
   };
 }

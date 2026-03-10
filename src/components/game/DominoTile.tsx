@@ -100,6 +100,7 @@ export default function DominoTile({ tile, size, state = 'normal', onClick, clas
         'tile-face cursor-pointer relative flex flex-col overflow-hidden border-2',
         stateStyles[state],
         state === 'frozen' && 'cursor-not-allowed',
+        highlight && 'ring-2 ring-yellow-400/80 shadow-[0_0_10px_rgba(255,200,0,0.55)]',
         className
       )}
       style={{
@@ -137,3 +138,4 @@ export default function DominoTile({ tile, size, state = 'normal', onClick, clas
     </motion.div>
   );
 }
+

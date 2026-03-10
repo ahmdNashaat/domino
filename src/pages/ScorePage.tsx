@@ -28,6 +28,12 @@ export default function ScorePage() {
   const playerWon = pCumScore > oCumScore;
   const isDraw = pCumScore === oCumScore;
   const played = useRef(false);
+  const pCards = Math.max(0, (player?.winPile?.length ?? 0) - (player?.basraCount ?? 0));
+  const oCards = Math.max(0, (opponent?.winPile?.length ?? 0) - (opponent?.basraCount ?? 0));
+  const diff = Math.abs(pCards - oCards);
+  const diffPoints = diff * 10;
+  const pDiffPoints = pCards > oCards ? diffPoints : 0;
+  const oDiffPoints = oCards > pCards ? diffPoints : 0;
 
   // Memoize random positions for decorative circles
   const circles = useMemo(() =>
@@ -167,8 +173,8 @@ export default function ScorePage() {
           </div>
 
           {[
-            { label: 'كروت المكسب', pVal: player?.winPile?.length ?? 0, oVal: opponent?.winPile?.length ?? 0, delay: 0.4 },
-            { label: 'فرق الكروت\n> 10 = 4', pVal: (player?.winPile?.length ?? 0) > (opponent?.winPile?.length ?? 0) ? ((player?.winPile?.length ?? 0) - (opponent?.winPile?.length ?? 0) >= 10 ? 4 : 0) : 0, oVal: (opponent?.winPile?.length ?? 0) > (player?.winPile?.length ?? 0) ? ((opponent?.winPile?.length ?? 0) - (player?.winPile?.length ?? 0) >= 10 ? 4 : 0) : 0, delay: 0.6 },
+            { label: 'كروت المكسب\n(بدون بصرة)', pVal: pCards, oVal: oCards, delay: 0.4 },
+            { label: 'فرق الكروت\n× 10', pVal: pDiffPoints, oVal: oDiffPoints, delay: 0.6 },
             { label: 'البصرة\n× 100', pVal: (player?.basraCount ?? 0) * 100, oVal: (opponent?.basraCount ?? 0) * 100, delay: 0.8, highlight: true },
           ].map((row, idx) => (
             <div key={idx} className="grid grid-cols-3 border-b border-border/50">
@@ -317,3 +323,6 @@ function PlayerScore({ name, score, color, isPlayer = false }: { name: string; s
     </div>
   );
 }
+
+
+

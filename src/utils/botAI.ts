@@ -13,7 +13,8 @@ export function makeBotDecision(
   table: DominoTile[],
   difficulty: BotDifficulty,
   opponentLastCapture: DominoTile | null,
-  opponentLastCaptureGroup: DominoTile[] = []
+  opponentLastCaptureGroup: DominoTile[] = [],
+  opponentWinPile: DominoTile[] = []
 ): BotDecision {
   const base = { bonbona: false, bonbonaTiles: [] as DominoTile[] };
 
