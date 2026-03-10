@@ -10,10 +10,11 @@ interface Props {
   isMine: boolean;
   reverse?: boolean;
   selectedBonbonaTiles?: DominoTileType[];
+  basraTiles?: DominoTileType[];
   onTileTap?: (tile: DominoTileType) => void;
 }
 
-export default function WinPile({ label, tiles, isMine, reverse = false, selectedBonbonaTiles = [], onTileTap }: Props) {
+export default function WinPile({ label, tiles, isMine, reverse = false, selectedBonbonaTiles = [], basraTiles = [], onTileTap }: Props) {
   const displayTiles = [...tiles].reverse();
   const prevCount = useRef(tiles.length);
   const [flash, setFlash] = useState(false);
@@ -44,17 +45,19 @@ export default function WinPile({ label, tiles, isMine, reverse = false, selecte
           </motion.span>
         </AnimatePresence>
       </div>
-      <div className="max-w-[45vw] overflow-x-auto">
-        <div className="flex gap-0.5 items-center py-1" style={{ direction: 'ltr' }}>
+      <div className="flex-1 max-h-[120px] overflow-y-auto w-full">
+        <div className="flex flex-wrap gap-1 items-start justify-start py-1 px-1" style={{ direction: 'ltr' }}>
           {displayTiles.map((tile, idx) => {
             const selected = selectedBonbonaTiles.some(t => tilesEqual(t, tile));
+            const isBasra = basraTiles?.some(bt => tilesEqual(bt, tile));
             return (
               <DominoTile
                 key={`pile-${tile[0]}-${tile[1]}-${idx}`}
                 tile={tile}
-                size="sm"
+                size="md"
                 state={selected ? 'selected' : 'normal'}
                 onClick={!isMine && onTileTap ? () => onTileTap(tile) : undefined}
+                highlight={isBasra}
               />
             );
           })}

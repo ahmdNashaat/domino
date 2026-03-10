@@ -17,6 +17,7 @@ interface PlayerState {
   hand: DominoTile[];
   winPile: DominoTile[];
   basraCount: number;
+  basraTiles: DominoTile[]; // tiles that triggered a basra for highlighting
   score: number;
   cumulativeScore: number;
   lastCapture: DominoTile | null;
@@ -150,15 +151,19 @@ function isBasra(table: DominoTile[], selected: DominoTile[], active: DominoTile
   return selected.length === table.length && table.every(t => selected.some(s => tilesEqual(t, s)));
 }
 
-function checkBonbona(activeTile: DominoTile, opponentLastCaptureGroup: DominoTile[]): boolean {
-  if (opponentLastCaptureGroup.length === 0) return false;
-  if (isJokerTile(activeTile)) return false; // No bonbona with joker
+function checkBonbona(activeTile: DominoTile, opponentWinPile: DominoTile[]): boolean {
+  // No bonbona for joker
+  if (isJokerTile(activeTile)) return false;
   
+  // No win pile or empty
+  if (!opponentWinPile || opponentWinPile.length === 0) return false;
+  
+  // Bonbona: active tile value must equal the LAST SINGLE TILE value captured by opponent
+  const lastTile = opponentWinPile[opponentWinPile.length - 1];
   const activeValue = getTileHandValue(activeTile);
+  const lastTileValue = getTileTableValue(lastTile);
   
-  // bonbona is valid if the opponent's entire last capture group sums to the same value
-  const lastCaptureValue = opponentLastCaptureGroup.reduce((sum, t) => sum + getTileTableValue(t), 0);
-  return lastCaptureValue === activeValue;
+  return activeValue === lastTileValue;
 }
 
 function canPartitionCapture(targetValue: number, selectedTiles: DominoTile[]): boolean {
@@ -223,7 +228,7 @@ function findRoom(socketId: string): Room | undefined {
 }
 
 function createPlayer(id: string, name: string): PlayerState {
-  return { id, name, hand: [], winPile: [], basraCount: 0, score: 0, cumulativeScore: 0, lastCapture: null, lastCaptureGroup: [] };
+  return { id, name, hand: [], winPile: [], basraCount: 0, basraTiles: [], score: 0, cumulativeScore: 0, lastCapture: null, lastCaptureGroup: [] };
 }
 
 // ── Send state to both players ─────────────────────────────────
@@ -247,6 +252,7 @@ function sendGameState(room: Room, lastEvent?: any) {
     myHand: p0.hand,
     myWinPile: p0.winPile,
     myBasraCount: p0.basraCount,
+    myBasraTiles: p0.basraTiles,
     myScore: p0.score,
     myCumulativeScore: p0.cumulativeScore,
     myName: p0.name,
@@ -255,6 +261,7 @@ function sendGameState(room: Room, lastEvent?: any) {
     opponentHandCount: p1.hand.length,
     opponentWinPile: p1.winPile,
     opponentBasraCount: p1.basraCount,
+    opponentBasraTiles: p1.basraTiles,
     opponentScore: p1.score,
     opponentCumulativeScore: p1.cumulativeScore,
     opponentName: p1.name,
@@ -271,6 +278,7 @@ function sendGameState(room: Room, lastEvent?: any) {
     myHand: p1.hand,
     myWinPile: p1.winPile,
     myBasraCount: p1.basraCount,
+    myBasraTiles: p1.basraTiles,
     myScore: p1.score,
     myCumulativeScore: p1.cumulativeScore,
     myName: p1.name,
@@ -279,6 +287,7 @@ function sendGameState(room: Room, lastEvent?: any) {
     opponentHandCount: p0.hand.length,
     opponentWinPile: p0.winPile,
     opponentBasraCount: p0.basraCount,
+    opponentBasraTiles: p0.basraTiles,
     opponentScore: p0.score,
     opponentCumulativeScore: p0.cumulativeScore,
     opponentName: p0.name,
@@ -527,23 +536,23 @@ io.on('connection', (socket) => {
 
         // Bonbona - can take opponent's last capture if it matches this card's value
         // Bonbona validation is separate from table capture validation
+        let bonbonaIsBasra = false;
         if (bonbona.length > 0) {
-          if (!checkBonbona(active, opp.lastCaptureGroup)) {
+          if (!checkBonbona(active, opp.winPile)) {
             socket.emit('game:invalid', { message: 'البونبونة غير صحيحة' });
             return;
           }
-          // Verify that bonbona tiles match the opponent's last capture group exactly
-          const validBonbona = bonbona.filter(b => 
-            opp.lastCaptureGroup.some(w => tilesEqual(w, b))
-          );
-          if (validBonbona.length !== opp.lastCaptureGroup.length) {
-            socket.emit('game:invalid', { message: 'اختار آخر مكسب الخصم كاملاً' });
+          // Verify that bonbona tiles is exactly the last tile from opponent's win pile
+          const lastTile = opp.winPile[opp.winPile.length - 1];
+          if (bonbona.length !== 1 || !tilesEqual(bonbona[0], lastTile)) {
+            socket.emit('game:invalid', { message: 'اختار آخر قطعة من مكسب الخصم فقط' });
             return;
           }
-          // Remove entire last capture group from opponent
-          opp.lastCaptureGroup = [];
-          opp.lastCapture = null;
-          opp.winPile = opp.winPile.filter(w => !validBonbona.some(b => tilesEqual(b, w)));
+          // Check if win pile contains joker - if so, bonbona counts as basra
+          bonbonaIsBasra = opp.winPile.some(t => isJokerTile(t));
+          
+          // Remove the last tile from opponent
+          opp.winPile = opp.winPile.filter(w => !tilesEqual(w, lastTile));
           event = { type: 'bonbona' };
         }
 
@@ -552,8 +561,13 @@ io.on('connection', (socket) => {
         curr.lastCapture = active;
         room.table = room.table.filter(t => !selected.some(s => tilesEqual(s, t)));
 
-        if (basra) {
+        if (bonbonaIsBasra) {
           curr.basraCount++;
+          curr.basraTiles.push(active);
+          event = { type: 'basra_bonbona' };
+        } else if (basra) {
+          curr.basraCount++;
+          curr.basraTiles.push(active);
           event = event ? { type: 'basra_bonbona' } : { type: 'basra', tile: active, tiles: selected };
         } else if (!event) {
           event = { type: 'capture', tile: active, tiles: selected };
@@ -600,8 +614,8 @@ io.on('connection', (socket) => {
     const room = findRoom(socket.id);
     if (!room || room.phase !== 'round_end') return;
     const [p0, p1] = room.players as [PlayerState, PlayerState];
-    p0.hand = []; p0.winPile = []; p0.basraCount = 0; p0.score = 0; p0.lastCapture = null; p0.lastCaptureGroup = [];
-    p1.hand = []; p1.winPile = []; p1.basraCount = 0; p1.score = 0; p1.lastCapture = null; p1.lastCaptureGroup = [];
+    p0.hand = []; p0.winPile = []; p0.basraCount = 0; p0.basraTiles = []; p0.score = 0; p0.lastCapture = null; p0.lastCaptureGroup = [];
+    p1.hand = []; p1.winPile = []; p1.basraCount = 0; p1.basraTiles = []; p1.score = 0; p1.lastCapture = null; p1.lastCaptureGroup = [];
     room.roundNumber++;
     startRound(room);
   });
@@ -610,7 +624,14 @@ io.on('connection', (socket) => {
     const room = findRoom(socket.id);
     if (!room) return;
     const player = (room.players as PlayerState[]).find(p => p.id === socket.id);
-    socket.to(room.code).emit('chat:message', { senderName: player?.name ?? 'لاعب', text: data.text });
+    if (!player) return;
+
+    // Send to all players in the room except the sender
+    room.players.forEach((p: PlayerState) => {
+      if (p.id !== socket.id) {
+        io.to(p.id).emit('chat:message', { senderName: player.name, text: data.text });
+      }
+    });
   });
 
   socket.on('room:leave', () => {

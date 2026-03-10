@@ -42,9 +42,9 @@ export default function PlayerHand({ hand, activeIndex, isPlayer, label, onActiv
                 transition={{ duration: 0.3 }}
               >
                 <DominoTile
-                  tile={showFace ? tile : null}
+                  tile={isActive ? tile : null}
                   size={isActive ? 'lg' : 'md'}
-                  state={isActive && isPlayer ? 'active' : 'normal'}
+                  state={isActive ? 'active' : 'normal'}
                   rotation={0}
                   onClick={isActive && isPlayer && onActiveClick ? onActiveClick : undefined}
                 />

@@ -9,8 +9,8 @@ import { playChatNotificationSound } from '@/utils/soundEffects';
 const QUICK_REPLIES = [
   { text: 'يلا 🔥', label: 'يلا 🔥' },
   { text: 'برافو 👏', label: 'برافو 👏' },
-  { text: 'حظ سعيد 🍀', label: 'حظ 🍀' },
-  { text: 'GG 🎮', label: 'GG 🎮' },
+  { text: 'إبلـع 🍀', label: 'إبلـع 🍀' },
+  { text: 'خد يزلفي 🎮', label: 'خد يزلفي 🎮' },
 ];
 
 const MAX_LENGTH = 200;
@@ -59,7 +59,8 @@ export default function ChatPanel() {
       {!isOpen && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-20 left-3 z-50 p-2.5 rounded-full bg-primary text-primary-foreground shadow-lg hover:scale-105 transition-transform"
+          className="fixed left-3 z-50 p-2.5 rounded-full bg-primary text-primary-foreground shadow-lg hover:scale-105 transition-transform"
+          style={{ bottom: 'calc(100% - 140px)' }}
         >
           <MessageCircle className="w-5 h-5" />
           {unreadCount > 0 && (

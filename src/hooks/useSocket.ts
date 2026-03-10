@@ -23,6 +23,7 @@ function getSocket(): Socket {
 export function useSocket() {
   const socket = getSocket();
   const initialized = useRef(false);
+  const listenersAdded = useRef(false);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -30,81 +31,96 @@ export function useSocket() {
 
     if (!socket.connected) socket.connect();
 
-    socket.on('connect', () => {
-      useOnlineStore.getState().setConnected(true);
-    });
+    // Only add listeners once per socket instance
+    if (!listenersAdded.current) {
+      listenersAdded.current = true;
 
-    socket.on('disconnect', () => {
-      useOnlineStore.getState().setConnected(false);
-    });
+      // Remove any existing listeners to prevent duplicates
+      socket.removeAllListeners('connect');
+      socket.removeAllListeners('disconnect');
+      socket.removeAllListeners('room:created');
+      socket.removeAllListeners('room:joined');
+      socket.removeAllListeners('room:error');
+      socket.removeAllListeners('room:opponent_joined');
+      socket.removeAllListeners('game:started');
+      socket.removeAllListeners('game:state');
+      socket.removeAllListeners('game:event');
+      socket.removeAllListeners('game:invalid');
+      socket.removeAllListeners('game:opponent_disconnected');
+      socket.removeAllListeners('chat:message');
 
-    socket.on('room:created', (data: { roomCode: string; playerName: string; playerId: string }) => {
-      const s = useOnlineStore.getState();
-      s.setRoomCode(data.roomCode);
-      s.setRoomStatus('waiting');
-      s.setIsHost(true);
-      if (data.playerId) {
-        useOnlineGameStore.getState().setMyPlayerId(data.playerId);
-      }
-    });
-
-    socket.on('room:joined', (data: { roomCode: string; opponentName: string; playerId: string }) => {
-      const s = useOnlineStore.getState();
-      s.setRoomCode(data.roomCode);
-      s.setOpponentName(data.opponentName);
-      s.setRoomStatus('waiting');
-      if (data.playerId) {
-        useOnlineGameStore.getState().setMyPlayerId(data.playerId);
-      }
-    });
-
-    socket.on('room:error', (data: { message: string }) => {
-      useOnlineStore.getState().setError(data.message);
-    });
-
-    socket.on('room:opponent_joined', (data: { opponentName: string }) => {
-      useOnlineStore.getState().setOpponentName(data.opponentName);
-    });
-
-    socket.on('game:started', (data: { playerId: string }) => {
-      useOnlineStore.getState().setRoomStatus('playing');
-      if (data.playerId) {
-        useOnlineGameStore.getState().setMyPlayerId(data.playerId);
-      }
-    });
-
-    // Full state sync from server after every action
-    socket.on('game:state', (data: ServerGameState) => {
-      useOnlineGameStore.getState().applyServerState(data);
-    });
-
-    // Game events (basra, bonbona, etc.)
-    socket.on('game:event', (data: { event: any }) => {
-      useOnlineGameStore.getState().setEvent(data.event);
-    });
-
-    // Validation error from server
-    socket.on('game:invalid', (data: { message: string }) => {
-      useOnlineGameStore.getState().setEvent({ type: 'invalid', message: data.message });
-    });
-
-    socket.on('game:opponent_disconnected', () => {
-      useOnlineStore.getState().setRoomStatus('disconnected');
-    });
-
-    socket.on('chat:message', (data: { senderName: string; text: string }) => {
-      useChatStore.getState().addMessage({
-        id: `${Date.now()}-${Math.random()}`,
-        sender: 'opponent',
-        senderName: data.senderName,
-        text: data.text,
-        timestamp: Date.now(),
+      socket.on('connect', () => {
+        useOnlineStore.getState().setConnected(true);
       });
-    });
 
-    return () => {
-      // Don't remove listeners on cleanup to keep singleton alive
-    };
+      socket.on('disconnect', () => {
+        useOnlineStore.getState().setConnected(false);
+      });
+
+      socket.on('room:created', (data: { roomCode: string; playerName: string; playerId: string }) => {
+        const s = useOnlineStore.getState();
+        s.setRoomCode(data.roomCode);
+        s.setRoomStatus('waiting');
+        s.setIsHost(true);
+        if (data.playerId) {
+          useOnlineGameStore.getState().setMyPlayerId(data.playerId);
+        }
+      });
+
+      socket.on('room:joined', (data: { roomCode: string; opponentName: string; playerId: string }) => {
+        const s = useOnlineStore.getState();
+        s.setRoomCode(data.roomCode);
+        s.setOpponentName(data.opponentName);
+        s.setRoomStatus('waiting');
+        if (data.playerId) {
+          useOnlineGameStore.getState().setMyPlayerId(data.playerId);
+        }
+      });
+
+      socket.on('room:error', (data: { message: string }) => {
+        useOnlineStore.getState().setError(data.message);
+      });
+
+      socket.on('room:opponent_joined', (data: { opponentName: string }) => {
+        useOnlineStore.getState().setOpponentName(data.opponentName);
+      });
+
+      socket.on('game:started', (data: { playerId: string }) => {
+        useOnlineStore.getState().setRoomStatus('playing');
+        if (data.playerId) {
+          useOnlineGameStore.getState().setMyPlayerId(data.playerId);
+        }
+      });
+
+      // Full state sync from server after every action
+      socket.on('game:state', (data: ServerGameState) => {
+        useOnlineGameStore.getState().applyServerState(data);
+      });
+
+      // Game events (basra, bonbona, etc.)
+      socket.on('game:event', (data: { event: any }) => {
+        useOnlineGameStore.getState().setEvent(data.event);
+      });
+
+      // Validation error from server
+      socket.on('game:invalid', (data: { message: string }) => {
+        useOnlineGameStore.getState().setEvent({ type: 'invalid', message: data.message });
+      });
+
+      socket.on('game:opponent_disconnected', () => {
+        useOnlineStore.getState().setRoomStatus('disconnected');
+      });
+
+      socket.on('chat:message', (data: { senderName: string; text: string }) => {
+        useChatStore.getState().addMessage({
+          id: `${Date.now()}-${Math.random()}`,
+          sender: 'opponent',
+          senderName: data.senderName,
+          text: data.text,
+          timestamp: Date.now(),
+        });
+      });
+    }
   }, []);
 
   const createRoom = useCallback((

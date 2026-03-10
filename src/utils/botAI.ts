@@ -18,16 +18,16 @@ export function makeBotDecision(
   const base = { bonbona: false, bonbonaTiles: [] as DominoTile[] };
 
   // Check bonbona opportunity
-  const canBonbona = checkBonbona(activeTile, opponentLastCapture);
+  const canBonbona = checkBonbona(activeTile, opponentWinPile);
   let bonbonaResult = { bonbona: false, bonbonaTiles: [] as DominoTile[] };
 
-  if (canBonbona && opponentLastCaptureGroup.length > 0) {
-    // Difficulty affects bonbona awareness
-    const bonbonaChance = difficulty === 'hard' ? 1.0 : difficulty === 'medium' ? 0.5 : 0.15;
-    if (Math.random() < bonbonaChance) {
-      bonbonaResult = { bonbona: true, bonbonaTiles: [...opponentLastCaptureGroup] };
+    if (canBonbona && opponentWinPile.length > 0) {
+      // Difficulty affects bonbona awareness
+      const bonbonaChance = difficulty === 'hard' ? 1.0 : difficulty === 'medium' ? 0.5 : 0.15;
+      if (Math.random() < bonbonaChance) {
+        bonbonaResult = { bonbona: true, bonbonaTiles: [opponentWinPile[opponentWinPile.length - 1]] };
+      }
     }
-  }
 
   // Joker on empty table → drop it
   if (isJokerTile(activeTile) && table.length === 0) {

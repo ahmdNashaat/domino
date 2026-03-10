@@ -4,7 +4,6 @@ import { DominoTile as DominoTileType } from '@/types/contracts';
 import DominoTile from './DominoTile';
 import { isBlankTile, tilesEqual } from '@/utils/gameEngine';
 import { Check, ArrowDown } from 'lucide-react';
-import { useAutoFitScale } from '@/hooks/useAutoFitScale';
 
 interface Props {
   tiles: DominoTileType[];
@@ -38,7 +37,6 @@ export default function TableArea({
   onDrop,
 }: Props) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
-  const tableScale = useAutoFitScale(tableContainerRef, tiles.length, 44, 64, 8);
 
   return (
     <div
@@ -68,14 +66,7 @@ export default function TableArea({
         <p className="text-muted-foreground/30 font-arabic text-sm">الطاولة فاضية</p>
       ) : (
         <div ref={tableContainerRef} className="flex-1 w-full overflow-hidden flex items-center justify-center py-2">
-          <div
-            className="flex gap-2 flex-wrap justify-center"
-            style={{
-              transform: `scale(${tableScale})`,
-              transformOrigin: 'center center',
-              transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-          >
+          <div className="flex gap-2 flex-wrap justify-center">
             <AnimatePresence>
               {tiles.map((tile, idx) => {
                 const blank = isBlankTile(tile);

@@ -119,6 +119,7 @@ export default function OnlineGamePage() {
               isMine={false}
               reverse={false}
               selectedBonbonaTiles={state.selectedBonbonaTiles}
+              basraTiles={state.opponent.basraTiles}
               onTileTap={canAct ? (tile) => { playSelectSound(); state.selectBonbonaTile(tile); } : undefined}
             />
           </div>
@@ -166,6 +167,7 @@ export default function OnlineGamePage() {
               tiles={state.me.winPile}
               isMine={true}
               reverse={false}
+              basraTiles={state.me.basraTiles}
             />
           </div>
           <div className="flex-shrink-0">

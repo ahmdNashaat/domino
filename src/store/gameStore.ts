@@ -13,6 +13,7 @@ const createPlayer = (name: string): Player => ({
   hand: [],
   winPile: [],
   basraCount: 0,
+  basraTiles: [],
   score: 0,
   cumulativeScore: 0,
   lastCapture: null,
@@ -159,22 +160,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    // Validate bonbona - check if active tile value equals the sum of opponent's last capture group
+    // Validate bonbona - check if active tile value equals the LAST SINGLE TILE of opponent's win pile
     if (bonbonaTiles.length > 0) {
-      const otherLastCaptureGroup = other.lastCaptureGroup;
-      if (!otherLastCaptureGroup || otherLastCaptureGroup.length === 0) {
+      const otherWinPile = other.winPile;
+      if (!otherWinPile || otherWinPile.length === 0) {
         set({ lastEvent: { type: 'invalid', message: 'الخصم لسه ما كسبش حاجة' }, selectedBonbonaTiles: [] });
         return;
       }
-      // Sum the opponent's last capture group value
-      const otherGroupValue = otherLastCaptureGroup.reduce((sum, t) => sum + getTileTableValue(t), 0);
-      if (handValue !== otherGroupValue) {
+      // Check if last capture contains joker - if so, bonbona not allowed
+      if (otherWinPile.some(t => isJokerTile(t))) {
+        set({ lastEvent: { type: 'invalid', message: 'الجوكر ما فيهش بونبونة' }, selectedBonbonaTiles: [] });
+        return;
+      }
+      // Active tile must be joker (for basra check later)
+      if (isJokerTile(activeTile)) {
+        set({ lastEvent: { type: 'invalid', message: 'الجوكر ما فيهش بونبونة' }, selectedBonbonaTiles: [] });
+        return;
+      }
+      // Get LAST SINGLE TILE value from opponent's win pile
+      const lastTile = otherWinPile[otherWinPile.length - 1];
+      const lastTileValue = getTileTableValue(lastTile);
+      if (handValue !== lastTileValue) {
         set({ lastEvent: { type: 'invalid', message: 'قيمة كارتك لا تساوي قيمة آخر أكل الخصم' }, selectedBonbonaTiles: [] });
         return;
       }
-      const allInGroup = bonbonaTiles.every(bt => otherLastCaptureGroup.some(gt => tilesEqual(gt, bt)));
-      if (!allInGroup) {
-        set({ lastEvent: { type: 'invalid', message: 'اختار من آخر مكسب الخصم فقط' }, selectedBonbonaTiles: [] });
+      // Bonbona takes only the last tile
+      if (bonbonaTiles.length !== 1 || !tilesEqual(bonbonaTiles[0], lastTile)) {
+        set({ lastEvent: { type: 'invalid', message: 'اختار آخر قطعة من مكسب الخصم فقط' }, selectedBonbonaTiles: [] });
         return;
       }
     }
@@ -193,11 +205,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     const basra = selectedTiles.length > 0 && isBasra(state.table, selectedTiles, activeTile);
+    
+    // Check if bonbona counts as basra (if opponent's last capture had joker)
+    let bonbonaCountsAsBasra = false;
+    if (bonbonaTiles.length > 0) {
+      const otherLastCaptureGroup = other.lastCaptureGroup;
+      bonbonaCountsAsBasra = otherLastCaptureGroup && otherLastCaptureGroup.some(t => isJokerTile(t));
+    }
+    
     const newHand = current.hand.filter((_, i) => i !== state.activeCardIndex);
     const captured = [...selectedTiles, ...bonbonaTiles, activeTile];
     const newWinPile = [...current.winPile, ...captured];
     const newTable = state.table.filter(t => !selectedTiles.some(s => tilesEqual(s, t)));
-    const newBasraCount = current.basraCount + (basra ? 1 : 0);
+    const newBasraCount = current.basraCount + (basra || bonbonaCountsAsBasra ? 1 : 0);
+    const newBasraTiles = basra || bonbonaCountsAsBasra ? [activeTile] : current.basraTiles;
 
     let newOtherWinPile = other.winPile;
     if (bonbonaTiles.length > 0) {
@@ -206,13 +227,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const isBonbona = bonbonaTiles.length > 0;
     const event: GameEvent = isBonbona
-      ? { type: 'bonbona', playerId: pid }
+      ? bonbonaCountsAsBasra 
+        ? { type: 'basra_bonbona', playerId: pid }
+        : { type: 'bonbona', playerId: pid }
       : basra
         ? { type: 'basra', playerId: pid }
         : { type: 'capture', playerId: pid, tiles: captured };
 
     set({
-      [pid]: { ...current, hand: newHand, winPile: newWinPile, basraCount: newBasraCount, lastCapture: activeTile, lastCaptureGroup: captured },
+      [pid]: { ...current, hand: newHand, winPile: newWinPile, basraCount: newBasraCount, basraTiles: newBasraTiles, lastCapture: activeTile, lastCaptureGroup: captured },
       [otherId]: { ...other, winPile: newOtherWinPile },
       table: newTable,
       selectedTableTiles: [],
@@ -263,8 +286,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       phase: 'playing',
       table: [],
-      player: { ...state.player, hand: playerHand, winPile: [], basraCount: 0, score: 0, lastCapture: null, lastCaptureGroup: [] },
-      opponent: { ...state.opponent, hand: opponentHand, winPile: [], basraCount: 0, score: 0, lastCapture: null, lastCaptureGroup: [] },
+      player: { ...state.player, hand: playerHand, winPile: [], basraCount: 0, basraTiles: [], score: 0, lastCapture: null, lastCaptureGroup: [] },
+      opponent: { ...state.opponent, hand: opponentHand, winPile: [], basraCount: 0, basraTiles: [], score: 0, lastCapture: null, lastCaptureGroup: [] },
       currentPlayerId: starter,
       activeCardIndex: starterHand.length - 1,
       selectedTableTiles: [],
@@ -359,15 +382,22 @@ function executeBotMove(set: any, get: () => GameStore) {
   } else if (decision.drop) {
     const newHand = botHand.filter((_, i) => i !== botHand.length - 1);
     // Bot can do bonbona even when dropping (no table capture needed)
+    let bonbonaIsBasra = false;
+    if (decision.bonbona && currentState.player.lastCaptureGroup.some(isJokerTile)) {
+      bonbonaIsBasra = true;
+    }
+
     if (decision.bonbona && decision.bonbonaTiles.length > 0) {
        const newWinPile = [...currentState.opponent.winPile, ...decision.bonbonaTiles, activeTile];
        const newTable = [...currentState.table, activeTile];
+       const newBasraCount = currentState.opponent.basraCount + (bonbonaIsBasra ? 1 : 0);
+       const newBasraTiles = bonbonaIsBasra ? [activeTile] : currentState.opponent.basraTiles;
        set({
          phase: 'playing' as GamePhase,
-         opponent: { ...currentState.opponent, hand: newHand, winPile: newWinPile, lastCapture: activeTile, lastCaptureGroup: [activeTile, ...decision.bonbonaTiles] },
+         opponent: { ...currentState.opponent, hand: newHand, winPile: newWinPile, basraCount: newBasraCount, basraTiles: newBasraTiles, lastCapture: activeTile, lastCaptureGroup: [activeTile, ...decision.bonbonaTiles] },
         player: { ...currentState.player, ...playerUpdate },
         table: newTable,
-        lastEvent: { type: 'bonbona', playerId: 'opponent' } as GameEvent,
+        lastEvent: bonbonaIsBasra ? { type: 'basra_bonbona', playerId: 'opponent' } as GameEvent : { type: 'bonbona', playerId: 'opponent' } as GameEvent,
       });
     } else {
       set({
@@ -379,21 +409,28 @@ function executeBotMove(set: any, get: () => GameStore) {
     }
   } else {
     const basra = isBasra(currentState.table, decision.selected, activeTile);
+    let bonbonaIsBasra = false;
+    if (decision.bonbona && currentState.player.lastCaptureGroup.some(isJokerTile)) {
+      bonbonaIsBasra = true;
+    }
     const newHand = botHand.filter((_, i) => i !== botHand.length - 1);
     const captured = [...decision.selected, ...decision.bonbonaTiles, activeTile];
     const newWinPile = [...currentState.opponent.winPile, ...captured];
     const newTable = currentState.table.filter(t => !decision.selected.some(s => tilesEqual(s, t)));
-    const newBasra = currentState.opponent.basraCount + (basra ? 1 : 0);
+    const newBasra = currentState.opponent.basraCount + (basra || bonbonaIsBasra ? 1 : 0);
+    const newBasraTiles = (basra || bonbonaIsBasra) ? [activeTile] : currentState.opponent.basraTiles;
 
     const event: GameEvent = decision.bonbona
-      ? { type: 'bonbona', playerId: 'opponent' }
+      ? bonbonaIsBasra
+        ? { type: 'basra_bonbona', playerId: 'opponent' }
+        : { type: 'bonbona', playerId: 'opponent' }
       : basra
         ? { type: 'basra', playerId: 'opponent' }
         : { type: 'capture', playerId: 'opponent', tiles: captured };
 
     set({
       phase: 'playing' as GamePhase,
-      opponent: { ...currentState.opponent, hand: newHand, winPile: newWinPile, basraCount: newBasra, lastCapture: activeTile, lastCaptureGroup: captured },
+      opponent: { ...currentState.opponent, hand: newHand, winPile: newWinPile, basraCount: newBasra, basraTiles: newBasraTiles, lastCapture: activeTile, lastCaptureGroup: captured },
       player: { ...currentState.player, ...playerUpdate },
       table: newTable,
       lastEvent: event,

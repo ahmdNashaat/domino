@@ -21,6 +21,7 @@ interface Props {
   onClick?: () => void;
   className?: string;
   rotation?: number;
+  highlight?: boolean;
 }
 
 const sizeMap = {
@@ -71,7 +72,7 @@ const stateStyles = {
   frozen: 'opacity-60 border-muted',
 };
 
-export default function DominoTile({ tile, size, state = 'normal', onClick, className, rotation = 0 }: Props) {
+export default function DominoTile({ tile, size, state = 'normal', onClick, className, rotation = 0, highlight = false }: Props) {
   const dims = sizeMap[size];
   const isFaceDown = tile === null;
 
@@ -130,6 +131,9 @@ export default function DominoTile({ tile, size, state = 'normal', onClick, clas
         <div className="flex-1 h-[2px] rounded-full" style={{ background: 'hsl(var(--tile-divider))' }} />
       </div>
       <TileHalf value={tile[1]} dims={dims} />
+      {highlight && (
+        <div className="absolute top-1 right-1 text-yellow-400 text-lg pointer-events-none">★</div>
+      )}
     </motion.div>
   );
 }

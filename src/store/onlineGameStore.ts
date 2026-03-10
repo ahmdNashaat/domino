@@ -8,6 +8,7 @@ interface OnlinePlayer {
   hand: DominoTile[]; // only populated for "me"
   winPile: DominoTile[];
   basraCount: number;
+  basraTiles: DominoTile[];
   score: number;
   cumulativeScore: number;
   lastCapture: DominoTile | null;
@@ -64,6 +65,7 @@ export interface ServerGameState {
   myHand: DominoTile[];
   myWinPile: DominoTile[];
   myBasraCount: number;
+  myBasraTiles: DominoTile[];
   myScore: number;
   myCumulativeScore: number;
   myName: string;
@@ -74,6 +76,7 @@ export interface ServerGameState {
   opponentHandCount: number;
   opponentWinPile: DominoTile[];
   opponentBasraCount: number;
+  opponentBasraTiles: DominoTile[];
   opponentScore: number;
   opponentCumulativeScore: number;
   opponentName: string;
@@ -87,6 +90,7 @@ const createEmptyPlayer = (name: string): OnlinePlayer => ({
   hand: [],
   winPile: [],
   basraCount: 0,
+  basraTiles: [],
   score: 0,
   cumulativeScore: 0,
   lastCapture: null,
@@ -176,6 +180,7 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
         handCount: data.myHand.length,
         winPile: data.myWinPile,
         basraCount: data.myBasraCount,
+        basraTiles: data.myBasraTiles || [],
         score: data.myScore,
         cumulativeScore: data.myCumulativeScore,
         lastCapture: data.myLastCapture,
@@ -187,6 +192,7 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
         handCount: data.opponentHandCount,
         winPile: data.opponentWinPile,
         basraCount: data.opponentBasraCount,
+        basraTiles: data.opponentBasraTiles || [],
         score: data.opponentScore,
         cumulativeScore: data.opponentCumulativeScore,
         lastCapture: data.opponentLastCapture,

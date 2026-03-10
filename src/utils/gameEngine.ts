@@ -143,12 +143,19 @@ export function isBasra(table: DominoTile[], selectedTableTiles: DominoTile[], a
   return selectedTableTiles.length === table.length && table.length > 0;
 }
 
-export function checkBonbona(activeTile: DominoTile, opponentLastCaptureGroup: DominoTile[]): boolean {
-  if (!opponentLastCaptureGroup || opponentLastCaptureGroup.length === 0 || isJokerTile(activeTile)) return false;
+export function checkBonbona(activeTile: DominoTile, opponentWinPile: DominoTile[]): boolean {
+  // No bonbona for joker
+  if (isJokerTile(activeTile)) return false;
+  
+  // No win pile or empty
+  if (!opponentWinPile || opponentWinPile.length === 0) return false;
+  
+  // Bonbona: active tile value must equal the LAST SINGLE TILE value captured by opponent
+  const lastTile = opponentWinPile[opponentWinPile.length - 1];
   const activeValue = getTileHandValue(activeTile);
-  // Sum of opponent's last capture group value
-  const lastGroupValue = opponentLastCaptureGroup.reduce((sum, t) => sum + getTileTableValue(t), 0);
-  return activeValue === lastGroupValue;
+  const lastTileValue = getTileTableValue(lastTile);
+  
+  return activeValue === lastTileValue;
 }
 
 export function calculateRoundScore(
@@ -159,12 +166,12 @@ export function calculateRoundScore(
 ): RoundScore {
   const pCards = playerWinPile.length;
   const oCards = opponentWinPile.length;
-  const diff = Math.abs(pCards - oCards);
-  const basePoints = diff * 10;
+  const pCardPoints = playerWinPile.reduce((sum, tile) => sum + getTileTableValue(tile), 0);
+  const oCardPoints = opponentWinPile.reduce((sum, tile) => sum + getTileTableValue(tile), 0);
   const pBasraPoints = playerBasras * 100;
   const oBasraPoints = opponentBasras * 100;
-  const playerPoints = (pCards > oCards ? basePoints : 0) + pBasraPoints;
-  const opponentPoints = (oCards > pCards ? basePoints : 0) + oBasraPoints;
+  const playerPoints = pCardPoints + pBasraPoints;
+  const opponentPoints = oCardPoints + oBasraPoints;
 
   return {
     playerCards: pCards,
@@ -173,7 +180,7 @@ export function calculateRoundScore(
     opponentBasras: opponentBasras,
     playerPoints,
     opponentPoints,
-    diff,
+    diff: Math.abs(pCardPoints - oCardPoints),
     roundWinner: playerPoints > opponentPoints ? 'player' : opponentPoints > playerPoints ? 'opponent' : 'tie',
   };
 }

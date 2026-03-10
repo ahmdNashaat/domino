@@ -54,6 +54,7 @@ export interface Player {
   hand: DominoTile[];
   winPile: DominoTile[];
   basraCount: number;
+  basraTiles: DominoTile[]; // tiles that triggered a basra (used for UI highlighting)
   score: number;
   cumulativeScore: number;
   lastCapture: DominoTile | null;
@@ -78,6 +79,7 @@ export interface GameState {
 
 export type GameEvent = 
   | { type: 'basra'; playerId: 'player' | 'opponent' }
+  | { type: 'basra_bonbona'; playerId: 'player' | 'opponent' }
   | { type: 'bonbona'; playerId: 'player' | 'opponent' }
   | { type: 'joker'; playerId: 'player' | 'opponent'; tilesSwept: DominoTile[] }
   | { type: 'invalid'; message: string }
