@@ -64,18 +64,28 @@ function shuffle<T>(arr: T[]): T[] {
 function getTileHandValue(tile: DominoTile): number {
   const [a, b] = tile;
   if (a === 0 && b === 0) return 12;
-  if (a === 1 && b === 0) return 11;
+  if ((a === 1 && b === 0) || (a === 0 && b === 1)) return 11;
+  if (a === 1 && b === 1) return 0; // Joker - special
   return a + b;
 }
 
 function getTileTableValue(tile: DominoTile): number {
   const [a, b] = tile;
   if (a === 0 && b === 0) return 0;
+  if ((a === 1 && b === 0) || (a === 0 && b === 1)) return 1; // الولد = 1 على الطاولة
   return a + b;
 }
 
 function isBlank(tile: DominoTile): boolean {
   return tile[0] === 0 && tile[1] === 0;
+}
+
+function isJokerTile(tile: DominoTile): boolean {
+  return tile[0] === 1 && tile[1] === 1;
+}
+
+function isWaladTile(tile: DominoTile): boolean {
+  return (tile[0] === 1 && tile[1] === 0) || (tile[0] === 0 && tile[1] === 1);
 }
 
 function tilesEqual(a: DominoTile, b: DominoTile): boolean {
@@ -121,13 +131,43 @@ function placeTile(chain: DominoTile[], tile: DominoTile, end: 'left' | 'right')
   }
 }
 
+function canCapture(active: DominoTile, selected: DominoTile[], table: DominoTile[]): boolean {
+  if (selected.length === 0) return false;
+  // selected must all be on table
+  for (const s of selected) {
+    if (!table.some(t => tilesEqual(t, s))) return false;
+    if (isBlank(s)) return false; // blank frozen
+  }
+  const activeVal = getTileHandValue(active);
+  // Use partition capture logic instead of simple sum
+  return canPartitionCapture(activeVal, selected);
+}
+
+function isBasra(table: DominoTile[], selected: DominoTile[], active: DominoTile): boolean {
+  if (isJokerTile(active)) return false;
+  // No basra if blanket is on the table
+  if (table.some(t => isBlank(t))) return false;
+  return selected.length === table.length && table.every(t => selected.some(s => tilesEqual(t, s)));
+}
+
+function checkBonbona(activeTile: DominoTile, opponentLastCaptureGroup: DominoTile[]): boolean {
+  if (opponentLastCaptureGroup.length === 0) return false;
+  if (isJokerTile(activeTile)) return false; // No bonbona with joker
+  
+  const activeValue = getTileHandValue(activeTile);
+  
+  // bonbona is valid if the opponent's entire last capture group sums to the same value
+  const lastCaptureValue = opponentLastCaptureGroup.reduce((sum, t) => sum + getTileTableValue(t), 0);
+  return lastCaptureValue === activeValue;
+}
+
 function canPartitionCapture(targetValue: number, selectedTiles: DominoTile[]): boolean {
   if (selectedTiles.length === 0) return false;
   
-  // Separate blanket tiles (they don't affect sums, captured للwalad for free)
+  // Separate blanket tiles (they don't affect sums, captured for free by الولد)
   const nonBlank = selectedTiles.filter(t => !isBlank(t));
   
-  // If only blanket tiles selected, that's valid
+  // If only blanket tiles selected (by الولد), that's valid
   if (nonBlank.length === 0) return true;
   
   const values = nonBlank.map(t => getTileTableValue(t));
@@ -171,34 +211,6 @@ function findSubsetsThatSum(values: number[], target: number): number[][] {
   
   bt(0, [], 0);
   return results;
-}
-
-function canCapture(active: DominoTile, selected: DominoTile[], table: DominoTile[]): boolean {
-  if (selected.length === 0) return false;
-  // selected must all be on table
-  for (const s of selected) {
-    if (!table.some(t => tilesEqual(t, s))) return false;
-    if (isBlank(s)) return false; // blank frozen
-  }
-  const activeVal = getTileHandValue(active);
-  // Use partition capture logic instead of simple sum
-  return canPartitionCapture(activeVal, selected);
-}
-
-function isBasra(table: DominoTile[], selected: DominoTile[], active: DominoTile): boolean {
-  if (active[0] === 1 && active[1] === 1) return false;
-  return selected.length === table.length && table.every(t => selected.some(s => tilesEqual(t, s)));
-}
-
-function checkBonbona(activeTile: DominoTile, opponentLastCaptureGroup: DominoTile[]): boolean {
-  if (opponentLastCaptureGroup.length === 0) return false;
-  if (activeTile[0] === 1 && activeTile[1] === 1) return false; // No bonbona with joker
-  
-  const activeValue = getTileHandValue(activeTile);
-  
-  // bonbona is valid if the opponent's entire last capture group sums to the same value
-  const lastCaptureValue = opponentLastCaptureGroup.reduce((sum, t) => sum + getTileTableValue(t), 0);
-  return lastCaptureValue === activeValue;
 }
 
 function generateCode(): string {
@@ -344,13 +356,20 @@ function endRound(room: Room) {
     p0.cumulativeScore += score0;
     p1.cumulativeScore += score1;
   } else {
-    // الأوراق المتبقية على الطاولة تروح لآخر من أخد
-    // (بسيط: روح لـ p0 لو winPile أكبر)
-    const lastCapturer = p0.winPile.length >= p1.winPile.length ? p0 : p1;
-    lastCapturer.winPile.push(...room.table);
-    room.table = [];
+    // Koutchina rules: remaining tiles on table go to the player who made the last capture
+    if (room.table.length > 0) {
+      // Check who made the last capture
+      if (p0.lastCapture) {
+        // p0 made the last capture
+        p0.winPile.push(...room.table);
+      } else {
+        // p1 made the last capture (or both made no capture, but that's invalid in real game)
+        p1.winPile.push(...room.table);
+      }
+      room.table = [];
+    }
 
-    // احسب النقاط
+    // Calculate round scores based on cards and basras
     const score0 = p0.winPile.reduce((s, t) => s + getTileTableValue(t), 0) + p0.basraCount * 100;
     const score1 = p1.winPile.reduce((s, t) => s + getTileTableValue(t), 0) + p1.basraCount * 100;
     p0.score = score0;
@@ -359,7 +378,7 @@ function endRound(room: Room) {
     p1.cumulativeScore += score1;
   }
 
-  // هل انتهت اللعبة؟
+  // Is game over?
   if (p0.cumulativeScore >= room.targetScore || p1.cumulativeScore >= room.targetScore) {
     room.phase = 'game_over';
   } else {
@@ -485,7 +504,7 @@ io.on('connection', (socket) => {
 
       let event: any = null;
 
-      if (active[0] === 1 && active[1] === 1) {
+      if (isJokerTile(active)) {
         // Joker يكسح كل الطاولة
         const swept = [...room.table];
         curr.winPile.push(active, ...swept);
@@ -541,6 +560,13 @@ io.on('connection', (socket) => {
 
       // شيل الكارت من الإيد
       curr.hand = curr.hand.filter((_, i) => i !== room.activeCardIndex);
+      
+      // Update active card index
+      if (curr.hand.length > 0) {
+        room.activeCardIndex = curr.hand.length - 1;
+      } else {
+        room.activeCardIndex = -1;
+      }
 
       sendGameState(room, event);
       setTimeout(() => advanceTurn(room), 300);

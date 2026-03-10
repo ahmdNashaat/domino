@@ -143,11 +143,12 @@ export function isBasra(table: DominoTile[], selectedTableTiles: DominoTile[], a
   return selectedTableTiles.length === table.length && table.length > 0;
 }
 
-export function checkBonbona(activeTile: DominoTile, opponentLastCapture: DominoTile | null): boolean {
-  if (!opponentLastCapture || isJokerTile(activeTile)) return false;
+export function checkBonbona(activeTile: DominoTile, opponentLastCaptureGroup: DominoTile[]): boolean {
+  if (!opponentLastCaptureGroup || opponentLastCaptureGroup.length === 0 || isJokerTile(activeTile)) return false;
   const activeValue = getTileHandValue(activeTile);
-  const lastValue = getTileHandValue(opponentLastCapture);
-  return activeValue === lastValue;
+  // Sum of opponent's last capture group value
+  const lastGroupValue = opponentLastCaptureGroup.reduce((sum, t) => sum + getTileTableValue(t), 0);
+  return activeValue === lastGroupValue;
 }
 
 export function calculateRoundScore(

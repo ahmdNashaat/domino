@@ -159,20 +159,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    // Validate bonbona
+    // Validate bonbona - check if active tile value equals the sum of opponent's last capture group
     if (bonbonaTiles.length > 0) {
-      const otherLastCapture = other.lastCapture;
-      if (!otherLastCapture) {
+      const otherLastCaptureGroup = other.lastCaptureGroup;
+      if (!otherLastCaptureGroup || otherLastCaptureGroup.length === 0) {
         set({ lastEvent: { type: 'invalid', message: 'الخصم لسه ما كسبش حاجة' }, selectedBonbonaTiles: [] });
         return;
       }
-      const otherLastValue = getTileHandValue(otherLastCapture);
-      if (handValue !== otherLastValue) {
-        set({ lastEvent: { type: 'invalid', message: 'قيمة كارتك لا تساوي قيمة آخر كارت الخصم' }, selectedBonbonaTiles: [] });
+      // Sum the opponent's last capture group value
+      const otherGroupValue = otherLastCaptureGroup.reduce((sum, t) => sum + getTileTableValue(t), 0);
+      if (handValue !== otherGroupValue) {
+        set({ lastEvent: { type: 'invalid', message: 'قيمة كارتك لا تساوي قيمة آخر أكل الخصم' }, selectedBonbonaTiles: [] });
         return;
       }
-      const lastGroup = other.lastCaptureGroup;
-      const allInGroup = bonbonaTiles.every(bt => lastGroup.some(gt => tilesEqual(gt, bt)));
+      const allInGroup = bonbonaTiles.every(bt => otherLastCaptureGroup.some(gt => tilesEqual(gt, bt)));
       if (!allInGroup) {
         set({ lastEvent: { type: 'invalid', message: 'اختار من آخر مكسب الخصم فقط' }, selectedBonbonaTiles: [] });
         return;
