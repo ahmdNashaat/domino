@@ -6,7 +6,15 @@ import cors from 'cors';
 const app = express();
 app.use(cors());
 const httpServer = createServer(app);
-const io = new Server(httpServer, { cors: { origin: '*', methods: ['GET', 'POST'] } });
+const io = new Server(httpServer, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
+  transports: ['polling', 'websocket'],
+  allowEIO3: true,
+});
 
 // Types
 // -----------------------------------------------------------------------------

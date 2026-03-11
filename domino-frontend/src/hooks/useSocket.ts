@@ -15,6 +15,7 @@ function getSocket(): Socket {
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      transports: ['polling', 'websocket'],
     });
   }
   return socketInstance;
