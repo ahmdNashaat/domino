@@ -23,6 +23,24 @@ interface OnlineClassicPlayer {
   cumulativeScore: number;
 }
 
+export type OnlineLastRoundSummary =
+  | {
+    variant: 'koutchina';
+    phase: 'round_end' | 'game_over';
+    me: OnlinePlayer;
+    opponent: OnlinePlayer;
+    targetScore: number;
+    roundNumber: number;
+  }
+  | {
+    variant: 'classic';
+    phase: 'round_end' | 'game_over';
+    classicPlayers: OnlineClassicPlayer[];
+    myPlayerId: string;
+    targetScore: number;
+    roundNumber: number;
+  };
+
 export interface OnlineGameState {
   phase: GamePhase;
   table: DominoTile[];
@@ -45,6 +63,7 @@ export interface OnlineGameState {
   targetScore: number;
   lastEvent: GameEvent | ClassicGameEvent | null;
   myPlayerId: string; // 'player0' or 'player1'
+  lastRoundSummary: OnlineLastRoundSummary | null;
 
   // Actions (local UI only)
   selectTile: (index: number) => void; // for classic
@@ -133,6 +152,7 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
   targetScore: 600,
   lastEvent: null,
   myPlayerId: '',
+  lastRoundSummary: null,
 
   selectTile: (index) => set((s) => ({ selectedTileIndex: index === s.selectedTileIndex ? -1 : index })),
 
@@ -181,6 +201,18 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
     const isMyTurn = data.currentPlayerId === state.myPlayerId;
 
     if (data.variant === 'classic') {
+      const phaseTerminal = data.phase === 'round_end' || data.phase === 'game_over';
+      const classicSummary: OnlineLastRoundSummary | null = phaseTerminal
+        ? {
+          variant: 'classic',
+          phase: data.phase,
+          classicPlayers: data.players || [],
+          myPlayerId: state.myPlayerId,
+          targetScore: data.targetScore,
+          roundNumber: data.roundNumber,
+        }
+        : (data.phase === 'playing' ? null : state.lastRoundSummary);
+
       set({
         phase: data.phase,
         table: [],
@@ -202,9 +234,48 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
         selectedBonbonaTiles: [],
         me: createEmptyPlayer('أنا'),
         opponent: createEmptyPlayer('الخصم'),
+        lastRoundSummary: classicSummary,
       });
       return;
     }
+
+    const meData: OnlinePlayer = {
+      name: data.myName,
+      hand: data.myHand,
+      handCount: data.myHand.length,
+      winPile: data.myWinPile,
+      basraCount: data.myBasraCount,
+      basraTiles: data.myBasraTiles || [],
+      score: data.myScore,
+      cumulativeScore: data.myCumulativeScore,
+      lastCapture: data.myLastCapture,
+      lastCaptureGroup: data.myLastCaptureGroup,
+    };
+
+    const opponentData: OnlinePlayer = {
+      name: data.opponentName,
+      hand: [],
+      handCount: data.opponentHandCount,
+      winPile: data.opponentWinPile,
+      basraCount: data.opponentBasraCount,
+      basraTiles: data.opponentBasraTiles || [],
+      score: data.opponentScore,
+      cumulativeScore: data.opponentCumulativeScore,
+      lastCapture: data.opponentLastCapture,
+      lastCaptureGroup: data.opponentLastCaptureGroup,
+    };
+
+    const phaseTerminal = data.phase === 'round_end' || data.phase === 'game_over';
+    const koutchinaSummary: OnlineLastRoundSummary | null = phaseTerminal
+      ? {
+        variant: 'koutchina',
+        phase: data.phase,
+        me: meData,
+        opponent: opponentData,
+        targetScore: data.targetScore,
+        roundNumber: data.roundNumber,
+      }
+      : (data.phase === 'playing' ? null : state.lastRoundSummary);
 
     set({
       phase: data.phase,
@@ -225,30 +296,9 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
       selectedTileIndex: -1,
       selectedTableTiles: [],
       selectedBonbonaTiles: [],
-      me: {
-        name: data.myName,
-        hand: data.myHand,
-        handCount: data.myHand.length,
-        winPile: data.myWinPile,
-        basraCount: data.myBasraCount,
-        basraTiles: data.myBasraTiles || [],
-        score: data.myScore,
-        cumulativeScore: data.myCumulativeScore,
-        lastCapture: data.myLastCapture,
-        lastCaptureGroup: data.myLastCaptureGroup,
-      },
-      opponent: {
-        name: data.opponentName,
-        hand: [],
-        handCount: data.opponentHandCount,
-        winPile: data.opponentWinPile,
-        basraCount: data.opponentBasraCount,
-        basraTiles: data.opponentBasraTiles || [],
-        score: data.opponentScore,
-        cumulativeScore: data.opponentCumulativeScore,
-        lastCapture: data.opponentLastCapture,
-        lastCaptureGroup: data.opponentLastCaptureGroup,
-      },
+      me: meData,
+      opponent: opponentData,
+      lastRoundSummary: koutchinaSummary,
     });
   },
 
@@ -275,6 +325,7 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
       targetScore: 600,
       lastEvent: null,
       myPlayerId: '',
+      lastRoundSummary: null,
     });
   },
 }));

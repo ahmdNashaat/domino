@@ -13,24 +13,30 @@ import PageShell from '@/components/PageShell';
 export default function ScorePage() {
   const navigate = useNavigate();
   const phase = useGameStore(s => s.phase);
+  const lastRound = useGameStore(s => s.lastRoundSummary);
   const player = useGameStore(s => s.player);
   const opponent = useGameStore(s => s.opponent);
   const targetScore = useGameStore(s => s.targetScore) || 600;
-  const roundNumber = useGameStore(s => s.roundNumber);
   const nextRound = useGameStore(s => s.nextRound);
   const resetGame = useGameStore(s => s.resetGame);
 
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
-  const isGameOver = phase === 'game_over';
-  const pCumScore = player?.cumulativeScore ?? 0;
-  const oCumScore = opponent?.cumulativeScore ?? 0;
-  const pScore = player?.score ?? 0;
-  const oScore = opponent?.score ?? 0;
+  const scoreReady = isValidPhase || !!lastRound;
+  const displayPhase = isValidPhase ? phase : lastRound?.phase;
+  const displayPlayer = !isValidPhase && lastRound ? lastRound.player : player;
+  const displayOpponent = !isValidPhase && lastRound ? lastRound.opponent : opponent;
+  const displayTargetScore = !isValidPhase && lastRound ? lastRound.targetScore : targetScore;
+
+  const isGameOver = displayPhase === 'game_over';
+  const pCumScore = displayPlayer?.cumulativeScore ?? 0;
+  const oCumScore = displayOpponent?.cumulativeScore ?? 0;
+  const pScore = displayPlayer?.score ?? 0;
+  const oScore = displayOpponent?.score ?? 0;
   const playerWon = pCumScore > oCumScore;
   const isDraw = pCumScore === oCumScore;
   const played = useRef(false);
-  const pCards = Math.max(0, (player?.winPile?.length ?? 0) - (player?.basraCount ?? 0));
-  const oCards = Math.max(0, (opponent?.winPile?.length ?? 0) - (opponent?.basraCount ?? 0));
+  const pCards = Math.max(0, (displayPlayer?.winPile?.length ?? 0) - (displayPlayer?.basraCount ?? 0));
+  const oCards = Math.max(0, (displayOpponent?.winPile?.length ?? 0) - (displayOpponent?.basraCount ?? 0));
   const diff = Math.abs(pCards - oCards);
   const diffPoints = diff * 10;
   const pDiffPoints = pCards > oCards ? diffPoints : 0;
@@ -48,13 +54,13 @@ export default function ScorePage() {
   []);
 
   useEffect(() => {
-    if (phase === 'idle' || phase === 'playing' || phase === 'bot_thinking') {
+    if (!scoreReady) {
       navigate('/home', { replace: true });
     }
-  }, [phase, navigate]);
+  }, [scoreReady, navigate]);
 
   useEffect(() => {
-    if (played.current || !isValidPhase) return;
+    if (played.current || !scoreReady) return;
     played.current = true;
     const t = setTimeout(() => {
       try {
@@ -74,9 +80,9 @@ export default function ScorePage() {
       try { playScoreRevealSound(); } catch (e) { /* ignore */ }
     }, 1200);
     return () => { clearTimeout(t); clearTimeout(t2); };
-  }, [isValidPhase]);
+  }, [scoreReady, isGameOver, isDraw, playerWon, pScore, oScore]);
 
-  if (!isValidPhase) {
+  if (!scoreReady) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center" dir="rtl">
         <p className="text-muted-foreground font-arabic animate-pulse">جاري التحميل...</p>
@@ -157,7 +163,7 @@ export default function ScorePage() {
         >
           <div className="grid grid-cols-3 border-b border-border">
             <div className="py-3 text-center">
-              <p className="text-sm font-arabic font-bold text-muted-foreground">{opponent?.name || 'الخصم'}</p>
+              <p className="text-sm font-arabic font-bold text-muted-foreground">{displayOpponent?.name || 'الخصم'}</p>
             </div>
             <div className="py-3 flex items-center justify-center">
               <Trophy className="w-4 h-4 text-primary" />
@@ -173,14 +179,14 @@ export default function ScorePage() {
                   👑
                 </motion.span>
               )}
-              <p className="text-sm font-arabic font-bold text-primary">{player?.name || 'لاعب'}</p>
+              <p className="text-sm font-arabic font-bold text-primary">{displayPlayer?.name || 'لاعب'}</p>
             </div>
           </div>
 
           {[
             { label: 'كروت المكسب\n(بدون بصرة)', pVal: pCards, oVal: oCards, delay: 0.4 },
             { label: 'فرق الكروت\n× 10', pVal: pDiffPoints, oVal: oDiffPoints, delay: 0.6 },
-            { label: 'البصرة\n× 100', pVal: (player?.basraCount ?? 0) * 100, oVal: (opponent?.basraCount ?? 0) * 100, delay: 0.8, highlight: true },
+            { label: 'البصرة\n× 100', pVal: (displayPlayer?.basraCount ?? 0) * 100, oVal: (displayOpponent?.basraCount ?? 0) * 100, delay: 0.8, highlight: true },
           ].map((row, idx) => (
             <div key={idx} className="grid grid-cols-3 border-b border-border/50">
               <div className="py-3 text-center">
@@ -229,25 +235,25 @@ export default function ScorePage() {
           transition={{ delay: 1.4 }}
         >
           <div className="flex items-center justify-between">
-            <PlayerScore name={opponent?.name || 'الخصم'} score={oCumScore} color="destructive" />
+            <PlayerScore name={displayOpponent?.name || 'الخصم'} score={oCumScore} color="destructive" />
             <div className="text-center">
               <p className="text-xs font-arabic text-muted-foreground">الهدف</p>
-              <p className="text-lg font-mono font-bold text-foreground">{targetScore}</p>
+              <p className="text-lg font-mono font-bold text-foreground">{displayTargetScore}</p>
             </div>
-            <PlayerScore name={player?.name || 'لاعب'} score={pCumScore} color="primary" isPlayer />
+            <PlayerScore name={displayPlayer?.name || 'لاعب'} score={pCumScore} color="primary" isPlayer />
           </div>
 
           <div className="relative h-4 bg-secondary rounded-full overflow-hidden border border-border">
             <motion.div
               className="absolute left-0 top-0 h-full rounded-full bg-destructive"
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min((oCumScore / targetScore) * 50, 50)}%` }}
+              animate={{ width: `${Math.min((oCumScore / displayTargetScore) * 50, 50)}%` }}
               transition={{ duration: 1.2, delay: 1.5 }}
             />
             <motion.div
               className="absolute right-0 top-0 h-full rounded-full gold-gradient"
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min((pCumScore / targetScore) * 50, 50)}%` }}
+              animate={{ width: `${Math.min((pCumScore / displayTargetScore) * 50, 50)}%` }}
               transition={{ duration: 1.2, delay: 1.5 }}
             />
             <div className="absolute left-1/2 top-0 w-0.5 h-full bg-accent -translate-x-1/2" />
@@ -328,6 +334,4 @@ function PlayerScore({ name, score, color, isPlayer = false }: { name: string; s
     </div>
   );
 }
-
-
 

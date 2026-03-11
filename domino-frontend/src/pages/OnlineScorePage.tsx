@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useOnlineGameStore } from '@/store/onlineGameStore';
@@ -13,11 +13,12 @@ import {
 import PageShell from '@/components/PageShell';
 
 export default function OnlineScorePage() {
+  const snapshot = useOnlineGameStore(s => s.lastRoundSummary);
   const storeVariant = useOnlineStore(s => s.gameVariant);
   const stateVariant = useOnlineGameStore(s => s.variant);
-  const isClassic = storeVariant === 'classic' || stateVariant === 'classic';
+  const resolvedVariant = snapshot?.variant ?? (storeVariant === 'classic' || stateVariant === 'classic' ? 'classic' : 'koutchina');
 
-  if (isClassic) {
+  if (resolvedVariant === 'classic') {
     return <OnlineClassicScorePage />;
   }
   return <OnlineKoutchinaScorePage />;
@@ -30,19 +31,27 @@ function OnlineKoutchinaScorePage() {
   const opponent = useOnlineGameStore(s => s.opponent);
   const targetScore = useOnlineGameStore(s => s.targetScore) || 600;
   const resetOnlineGame = useOnlineGameStore(s => s.resetOnlineGame);
+  const snapshot = useOnlineGameStore(s => s.lastRoundSummary);
+  const koutchinaSnapshot = snapshot?.variant === 'koutchina' ? snapshot : null;
   const { leaveRoom, sendNextRound } = useSocket();
 
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
-  const isGameOver = phase === 'game_over';
-  const pCumScore = me?.cumulativeScore ?? 0;
-  const oCumScore = opponent?.cumulativeScore ?? 0;
-  const pScore = me?.score ?? 0;
-  const oScore = opponent?.score ?? 0;
+  const scoreReady = isValidPhase || !!koutchinaSnapshot;
+  const displayPhase = isValidPhase ? phase : koutchinaSnapshot?.phase;
+  const displayMe = !isValidPhase && koutchinaSnapshot ? koutchinaSnapshot.me : me;
+  const displayOpponent = !isValidPhase && koutchinaSnapshot ? koutchinaSnapshot.opponent : opponent;
+  const displayTargetScore = !isValidPhase && koutchinaSnapshot ? koutchinaSnapshot.targetScore : targetScore;
+
+  const isGameOver = displayPhase === 'game_over';
+  const pCumScore = displayMe?.cumulativeScore ?? 0;
+  const oCumScore = displayOpponent?.cumulativeScore ?? 0;
+  const pScore = displayMe?.score ?? 0;
+  const oScore = displayOpponent?.score ?? 0;
   const playerWon = pCumScore > oCumScore;
   const isDraw = pCumScore === oCumScore;
   const played = useRef(false);
-  const pCards = Math.max(0, (me?.winPile?.length ?? 0) - (me?.basraCount ?? 0));
-  const oCards = Math.max(0, (opponent?.winPile?.length ?? 0) - (opponent?.basraCount ?? 0));
+  const pCards = Math.max(0, (displayMe?.winPile?.length ?? 0) - (displayMe?.basraCount ?? 0));
+  const oCards = Math.max(0, (displayOpponent?.winPile?.length ?? 0) - (displayOpponent?.basraCount ?? 0));
   const diff = Math.abs(pCards - oCards);
   const diffPoints = diff * 10;
   const pDiffPoints = pCards > oCards ? diffPoints : 0;
@@ -59,13 +68,13 @@ function OnlineKoutchinaScorePage() {
   []);
 
   useEffect(() => {
-    if (!isValidPhase) {
+    if (!scoreReady) {
       navigate('/home', { replace: true });
     }
-  }, [isValidPhase, navigate]);
+  }, [scoreReady, navigate]);
 
   useEffect(() => {
-    if (played.current || !isValidPhase) return;
+    if (played.current || !scoreReady) return;
     played.current = true;
     const t = setTimeout(() => {
       try {
@@ -85,15 +94,15 @@ function OnlineKoutchinaScorePage() {
       try { playScoreRevealSound(); } catch (e) { /* ignore */ }
     }, 1200);
     return () => { clearTimeout(t); clearTimeout(t2); };
-  }, [isValidPhase]);
+  }, [scoreReady, isGameOver, isDraw, playerWon, pScore, oScore]);
 
   useEffect(() => {
-    if (phase === 'playing') {
+    if (phase === 'playing' && !koutchinaSnapshot) {
       navigate('/online/game');
     }
-  }, [phase, navigate]);
+  }, [phase, koutchinaSnapshot, navigate]);
 
-  if (!isValidPhase) {
+  if (!scoreReady) {
     return (
       <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
         <p className="text-muted-foreground font-arabic animate-pulse">جاري التحميل...</p>
@@ -170,7 +179,7 @@ function OnlineKoutchinaScorePage() {
         >
           <div className="grid grid-cols-3 border-b border-border">
             <div className="py-3 text-center">
-              <p className="text-sm font-arabic font-bold text-muted-foreground">{opponent?.name || 'الخصم'}</p>
+              <p className="text-sm font-arabic font-bold text-muted-foreground">{displayOpponent?.name || 'الخصم'}</p>
             </div>
             <div className="py-3 flex items-center justify-center">
               <Trophy className="w-4 h-4 text-primary" />
@@ -186,14 +195,14 @@ function OnlineKoutchinaScorePage() {
                   👑
                 </motion.span>
               )}
-              <p className="text-sm font-arabic font-bold text-primary">{me?.name || 'أنا'}</p>
+              <p className="text-sm font-arabic font-bold text-primary">{displayMe?.name || 'أنا'}</p>
             </div>
           </div>
 
           {[
             { label: 'كروت المكسب\n(بدون بصرة)', pVal: pCards, oVal: oCards, delay: 0.4 },
             { label: 'فرق الكروت\n× 10', pVal: pDiffPoints, oVal: oDiffPoints, delay: 0.6 },
-            { label: 'البصرة\n× 100', pVal: (me?.basraCount ?? 0) * 100, oVal: (opponent?.basraCount ?? 0) * 100, delay: 0.8, highlight: true },
+            { label: 'البصرة\n× 100', pVal: (displayMe?.basraCount ?? 0) * 100, oVal: (displayOpponent?.basraCount ?? 0) * 100, delay: 0.8, highlight: true },
           ].map((row, idx) => (
             <div key={idx} className="grid grid-cols-3 border-b border-border/50">
               <div className="py-3 text-center">
@@ -242,25 +251,25 @@ function OnlineKoutchinaScorePage() {
           transition={{ delay: 1.4 }}
         >
           <div className="flex items-center justify-between">
-            <PlayerScore name={opponent?.name || 'الخصم'} score={oCumScore} color="destructive" />
+            <PlayerScore name={displayOpponent?.name || 'الخصم'} score={oCumScore} color="destructive" />
             <div className="text-center">
               <p className="text-xs font-arabic text-muted-foreground">الهدف</p>
-              <p className="text-lg font-mono font-bold text-foreground">{targetScore}</p>
+              <p className="text-lg font-mono font-bold text-foreground">{displayTargetScore}</p>
             </div>
-            <PlayerScore name={me?.name || 'أنا'} score={pCumScore} color="primary" isPlayer />
+            <PlayerScore name={displayMe?.name || 'أنا'} score={pCumScore} color="primary" isPlayer />
           </div>
 
           <div className="relative h-4 bg-secondary rounded-full overflow-hidden border border-border">
             <motion.div
               className="absolute left-0 top-0 h-full rounded-full bg-destructive"
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min((oCumScore / targetScore) * 50, 50)}%` }}
+              animate={{ width: `${Math.min((oCumScore / displayTargetScore) * 50, 50)}%` }}
               transition={{ duration: 1.2, delay: 1.5 }}
             />
             <motion.div
               className="absolute right-0 top-0 h-full rounded-full gold-gradient"
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min((pCumScore / targetScore) * 50, 50)}%` }}
+              animate={{ width: `${Math.min((pCumScore / displayTargetScore) * 50, 50)}%` }}
               transition={{ duration: 1.2, delay: 1.5 }}
             />
             <div className="absolute left-1/2 top-0 w-0.5 h-full bg-accent -translate-x-1/2" />
@@ -306,15 +315,23 @@ function OnlineClassicScorePage() {
   const targetScore = useOnlineGameStore(s => s.targetScore);
   const myId = useOnlineGameStore(s => s.myPlayerId);
   const resetOnlineGame = useOnlineGameStore(s => s.resetOnlineGame);
+  const snapshot = useOnlineGameStore(s => s.lastRoundSummary);
+  const classicSnapshot = snapshot?.variant === 'classic' ? snapshot : null;
   const { leaveRoom, sendNextRound } = useSocket();
 
-  const isGameOver = phase === 'game_over';
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
+  const scoreReady = isValidPhase || !!classicSnapshot;
+  const displayPhase = isValidPhase ? phase : classicSnapshot?.phase;
+  const displayPlayers = !isValidPhase && classicSnapshot ? classicSnapshot.classicPlayers : players;
+  const displayTargetScore = !isValidPhase && classicSnapshot ? classicSnapshot.targetScore : targetScore;
+  const displayMyId = !isValidPhase && classicSnapshot ? classicSnapshot.myPlayerId : myId;
+
+  const isGameOver = displayPhase === 'game_over';
   const played = useRef(false);
 
-  const maxScore = Math.max(0, ...players.map(p => p.cumulativeScore));
-  const winners = players.filter(p => p.cumulativeScore === maxScore);
-  const myPlayer = players.find(p => p.id === myId);
+  const maxScore = Math.max(0, ...displayPlayers.map(p => p.cumulativeScore));
+  const winners = displayPlayers.filter(p => p.cumulativeScore === maxScore);
+  const myPlayer = displayPlayers.find(p => p.id === displayMyId);
   const humanWon = isGameOver && myPlayer && myPlayer.cumulativeScore === maxScore && winners.length === 1;
   const isDraw = isGameOver && winners.length > 1;
 
@@ -329,14 +346,14 @@ function OnlineClassicScorePage() {
   []);
 
   useEffect(() => {
-    if (!isValidPhase) {
+    if (!scoreReady) {
       navigate('/home', { replace: true });
       return;
     }
-  }, [isValidPhase, navigate]);
+  }, [scoreReady, navigate]);
 
   useEffect(() => {
-    if (played.current || !isValidPhase) return;
+    if (played.current || !scoreReady) return;
     played.current = true;
     const t = setTimeout(() => {
       try {
@@ -356,15 +373,15 @@ function OnlineClassicScorePage() {
       try { playScoreRevealSound(); } catch (e) { /* ignore */ }
     }, 1200);
     return () => { clearTimeout(t); clearTimeout(t2); };
-  }, [isValidPhase]);
+  }, [scoreReady, isGameOver, isDraw, humanWon, myPlayer]);
 
   useEffect(() => {
-    if (phase === 'playing') {
+    if (phase === 'playing' && !classicSnapshot) {
       navigate('/online/game');
     }
-  }, [phase, navigate]);
+  }, [phase, classicSnapshot, navigate]);
 
-  if (!isValidPhase) {
+  if (!scoreReady) {
     return (
       <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
         <p className="text-muted-foreground font-arabic animate-pulse">جاري التحميل...</p>
@@ -427,21 +444,21 @@ function OnlineClassicScorePage() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.2 }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${players.length}, 1fr)` }} className="border-b border-border">
-            {players.map((p) => (
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${displayPlayers.length}, 1fr)` }} className="border-b border-border">
+            {displayPlayers.map((p) => (
               <div key={p.id} className="py-3 text-center">
-                <p className={`text-sm font-arabic font-bold ${p.id === myId ? 'text-primary' : 'text-muted-foreground'}`}>
+                <p className={`text-sm font-arabic font-bold ${p.id === displayMyId ? 'text-primary' : 'text-muted-foreground'}`}>
                   {p.name}
                 </p>
               </div>
             ))}
           </div>
 
-          <div className="border-b border-border/50" style={{ display: 'grid', gridTemplateColumns: `repeat(${players.length}, 1fr)` }}>
-            {players.map((p) => (
+          <div className="border-b border-border/50" style={{ display: 'grid', gridTemplateColumns: `repeat(${displayPlayers.length}, 1fr)` }}>
+            {displayPlayers.map((p) => (
               <div key={p.id} className="py-3 text-center">
                 <motion.span
-                  className={`font-mono font-bold ${p.id === myId ? 'text-primary' : 'text-foreground'}`}
+                  className={`font-mono font-bold ${p.id === displayMyId ? 'text-primary' : 'text-foreground'}`}
                   initial={{ opacity: 0, scale: 0.5 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: 0.4 }}
@@ -456,8 +473,8 @@ function OnlineClassicScorePage() {
             <p className="text-[10px] font-arabic text-muted-foreground">نقاط الجولة ↑ · المجموع ↓</p>
           </div>
 
-          <div className="bg-secondary/30" style={{ display: 'grid', gridTemplateColumns: `repeat(${players.length}, 1fr)` }}>
-            {players.map((p) => (
+          <div className="bg-secondary/30" style={{ display: 'grid', gridTemplateColumns: `repeat(${displayPlayers.length}, 1fr)` }}>
+            {displayPlayers.map((p) => (
               <div key={p.id} className="py-3 text-center">
                 <motion.span
                   className={`text-lg font-mono font-bold ${p.cumulativeScore === maxScore ? 'text-primary' : 'text-foreground'}`}
@@ -478,15 +495,15 @@ function OnlineClassicScorePage() {
           animate={{ opacity: 1 }}
           transition={{ delay: 1 }}
         >
-          <p className="text-xs font-arabic text-muted-foreground text-center">الهدف: {targetScore}</p>
-          {players.map((p) => (
+          <p className="text-xs font-arabic text-muted-foreground text-center">الهدف: {displayTargetScore}</p>
+          {displayPlayers.map((p) => (
             <div key={p.id} className="flex items-center gap-2">
               <span className="text-[10px] font-arabic text-muted-foreground w-16 truncate text-left">{p.name}</span>
               <div className="flex-1 h-3 bg-secondary rounded-full overflow-hidden border border-border">
                 <motion.div
-                  className={`h-full rounded-full ${p.id === myId ? 'gold-gradient' : 'bg-accent'}`}
+                  className={`h-full rounded-full ${p.id === displayMyId ? 'gold-gradient' : 'bg-accent'}`}
                   initial={{ width: 0 }}
-                  animate={{ width: `${Math.min((p.cumulativeScore / targetScore) * 100, 100)}%` }}
+                  animate={{ width: `${Math.min((p.cumulativeScore / displayTargetScore) * 100, 100)}%` }}
                   transition={{ duration: 1, delay: 1 }}
                 />
               </div>

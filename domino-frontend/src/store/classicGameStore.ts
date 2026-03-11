@@ -15,6 +15,14 @@ const createPlayer = (name: string, isBot: boolean): ClassicPlayer => ({
 
 const BOT_NAMES = ['بوت 1', 'بوت 2', 'بوت 3'];
 
+
+interface LastRoundSummary {
+  phase: 'round_end' | 'game_over';
+  players: ClassicPlayer[];
+  targetScore: number;
+  roundNumber: number;
+}
+
 interface ClassicGameStore {
   phase: ClassicGamePhase;
   gameMode: GameMode;
@@ -30,6 +38,7 @@ interface ClassicGameStore {
   passCount: number;
   lastEvent: ClassicGameEvent | null;
   playerCount: number;
+  lastRoundSummary: LastRoundSummary | null;
 
   startGame: (playerName: string, targetScore: number, botDifficulty: BotDifficulty, gameMode: GameMode, opponentName?: string, playerCount?: number, extraNames?: string[]) => void;
   selectTile: (index: number) => void;
@@ -56,6 +65,7 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
   passCount: 0,
   lastEvent: null,
   playerCount: 2,
+  lastRoundSummary: null,
 
   startGame: (playerName, targetScore, botDifficulty, gameMode, opponentName, playerCount = 2, extraNames) => {
     const tiles = shuffleTiles(generateClassicTiles());
@@ -113,6 +123,7 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
       passCount: 0,
       lastEvent: null,
       playerCount,
+      lastRoundSummary: null,
     });
 
     // If starter is a bot, trigger bot turn
@@ -256,6 +267,7 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
       roundNumber: state.roundNumber + 1,
       passCount: 0,
       lastEvent: null,
+      lastRoundSummary: null,
     });
 
     if (newPlayers[starterIdx].isBot) {
@@ -277,6 +289,7 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
       passCount: 0,
       lastEvent: null,
       playerCount: 2,
+      lastRoundSummary: null,
     });
   },
 }));
@@ -454,9 +467,18 @@ function endRound(set: any, get: () => ClassicGameStore, finisherIndex: number) 
     useStatsStore.getState().recordGame(humanWon, false, 0, 0, roundScore.winnerPoints);
   }
 
+  const phase = (gameOver ? 'game_over' : 'round_end') as ClassicGamePhase;
+  const summary: LastRoundSummary = {
+    phase: phase === 'game_over' ? 'game_over' : 'round_end',
+    players: newPlayers,
+    targetScore: state.targetScore,
+    roundNumber: state.roundNumber,
+  };
+
   set({
-    phase: (gameOver ? 'game_over' : 'round_end') as ClassicGamePhase,
+    phase,
     players: newPlayers,
     lastEvent: null,
+    lastRoundSummary: summary,
   });
 }

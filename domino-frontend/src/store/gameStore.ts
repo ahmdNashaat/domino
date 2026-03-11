@@ -30,11 +30,20 @@ const popHistory = (history: DominoTile[][]) => (history.length > 0 ? history.sl
 const peekHistory = (history: DominoTile[][]) => (history.length > 0 ? history[history.length - 1] : []);
 const lastTileFromGroup = (group: DominoTile[]) => (group.length > 0 ? group[group.length - 1] : null);
 
+interface LastRoundSummary {
+  phase: 'round_end' | 'game_over';
+  player: Player;
+  opponent: Player;
+  targetScore: number;
+  roundNumber: number;
+}
+
 interface GameStore extends GameState {
   captureHistory: {
     player: DominoTile[][];
     opponent: DominoTile[][];
   };
+  lastRoundSummary: LastRoundSummary | null;
   startGame: (playerName: string, targetScore: number, botDifficulty: BotDifficulty, gameMode: GameMode, opponentName?: string) => void;
   selectTableTile: (tile: DominoTile) => void;
   confirmCapture: () => void;
@@ -60,6 +69,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   targetScore: 600,
   botDifficulty: 'medium',
   lastEvent: null,
+  lastRoundSummary: null,
 
   startGame: (playerName, targetScore, botDifficulty, gameMode, opponentName) => {
     const tiles = shuffleTiles(generateTiles());
@@ -84,6 +94,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       targetScore,
       botDifficulty,
       lastEvent: null,
+      lastRoundSummary: null,
     });
 
     // If bot starts in bot mode, trigger bot turn
@@ -343,6 +354,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       captureHistory: createEmptyHistory(),
       roundNumber: state.roundNumber + 1,
       lastEvent: null,
+      lastRoundSummary: null,
     });
 
     // If bot starts in bot mode, trigger bot turn
@@ -365,6 +377,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       captureHistory: createEmptyHistory(),
       roundNumber: 1,
       lastEvent: null,
+      lastRoundSummary: null,
     });
   },
 }));
@@ -612,21 +625,33 @@ function endRound(set: any, get: () => GameStore) {
     );
   }
 
+  const phase = (gameOver ? 'game_over' : 'round_end') as GamePhase;
+  const updatedPlayer: Player = {
+    ...state.player,
+    winPile: playerPile,
+    score: roundScore.playerPoints,
+    cumulativeScore: newPlayerCumulative,
+  };
+  const updatedOpponent: Player = {
+    ...state.opponent,
+    winPile: opponentPile,
+    score: roundScore.opponentPoints,
+    cumulativeScore: newOpponentCumulative,
+  };
+  const summary: LastRoundSummary = {
+    phase: phase === 'game_over' ? 'game_over' : 'round_end',
+    player: updatedPlayer,
+    opponent: updatedOpponent,
+    targetScore: state.targetScore,
+    roundNumber: state.roundNumber,
+  };
+
   set({
-    phase: gameOver ? 'game_over' as GamePhase : 'round_end' as GamePhase,
+    phase,
     table: [],
-    player: {
-      ...state.player,
-      winPile: playerPile,
-      score: roundScore.playerPoints,
-      cumulativeScore: newPlayerCumulative,
-    },
-    opponent: {
-      ...state.opponent,
-      winPile: opponentPile,
-      score: roundScore.opponentPoints,
-      cumulativeScore: newOpponentCumulative,
-    },
+    player: updatedPlayer,
+    opponent: updatedOpponent,
+    lastRoundSummary: summary,
   });
 }
 

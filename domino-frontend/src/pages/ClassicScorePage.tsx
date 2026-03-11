@@ -13,18 +13,24 @@ import PageShell from '@/components/PageShell';
 export default function ClassicScorePage() {
   const navigate = useNavigate();
   const phase = useClassicGameStore(s => s.phase);
+  const lastRound = useClassicGameStore(s => s.lastRoundSummary);
   const players = useClassicGameStore(s => s.players);
   const targetScore = useClassicGameStore(s => s.targetScore);
   const nextRound = useClassicGameStore(s => s.nextRound);
   const resetGame = useClassicGameStore(s => s.resetGame);
-  const roundNumber = useClassicGameStore(s => s.roundNumber);
 
-  const isGameOver = phase === 'game_over';
+  const isValidPhase = phase === 'round_end' || phase === 'game_over';
+  const scoreReady = isValidPhase || !!lastRound;
+  const displayPhase = isValidPhase ? phase : lastRound?.phase;
+  const displayPlayers = !isValidPhase && lastRound ? lastRound.players : players;
+  const displayTargetScore = !isValidPhase && lastRound ? lastRound.targetScore : targetScore;
+
+  const isGameOver = displayPhase === 'game_over';
   const played = useRef(false);
 
-  const humanPlayer = players[0];
-  const maxScore = Math.max(...players.map(p => p.cumulativeScore));
-  const winners = players.filter(p => p.cumulativeScore === maxScore);
+  const humanPlayer = displayPlayers[0];
+  const maxScore = Math.max(0, ...displayPlayers.map(p => p.cumulativeScore));
+  const winners = displayPlayers.filter(p => p.cumulativeScore === maxScore);
   const humanWon = isGameOver && humanPlayer && humanPlayer.cumulativeScore === maxScore && winners.length === 1;
   const isDraw = isGameOver && winners.length > 1;
 
@@ -39,15 +45,14 @@ export default function ClassicScorePage() {
   []);
 
   useEffect(() => {
-    if (phase === 'idle') {
+    if (!scoreReady) {
       navigate('/home', { replace: true });
       return;
     }
-  }, [phase, navigate]);
+  }, [scoreReady, navigate]);
 
   useEffect(() => {
-    if (played.current) return;
-    if (phase !== 'round_end' && phase !== 'game_over') return;
+    if (played.current || !scoreReady) return;
     played.current = true;
     const t = setTimeout(() => {
       try {
@@ -67,9 +72,9 @@ export default function ClassicScorePage() {
       try { playScoreRevealSound(); } catch (e) { /* ignore */ }
     }, 1200);
     return () => { clearTimeout(t); clearTimeout(t2); };
-  }, [phase]);
+  }, [scoreReady, isGameOver, isDraw, humanWon, humanPlayer]);
 
-  if (phase === 'idle' || !players || players.length === 0) return null;
+  if (!scoreReady || !displayPlayers || displayPlayers.length === 0) return null;
 
   const handleNextRound = () => {
     nextRound();
@@ -126,8 +131,8 @@ export default function ClassicScorePage() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.2 }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${players.length}, 1fr)` }} className="border-b border-border">
-            {players.map((p, i) => (
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${displayPlayers.length}, 1fr)` }} className="border-b border-border">
+            {displayPlayers.map((p, i) => (
               <div key={i} className="py-3 text-center">
                 <p className={`text-sm font-arabic font-bold ${i === 0 ? 'text-primary' : 'text-muted-foreground'}`}>
                   {p.name}
@@ -136,8 +141,8 @@ export default function ClassicScorePage() {
             ))}
           </div>
 
-          <div className="border-b border-border/50" style={{ display: 'grid', gridTemplateColumns: `repeat(${players.length}, 1fr)` }}>
-            {players.map((p, i) => (
+          <div className="border-b border-border/50" style={{ display: 'grid', gridTemplateColumns: `repeat(${displayPlayers.length}, 1fr)` }}>
+            {displayPlayers.map((p, i) => (
               <div key={i} className="py-3 text-center">
                 <motion.span
                   className={`font-mono font-bold ${i === 0 ? 'text-primary' : 'text-foreground'}`}
@@ -155,8 +160,8 @@ export default function ClassicScorePage() {
             <p className="text-[10px] font-arabic text-muted-foreground">نقاط الجولة ↑ · المجموع ↓</p>
           </div>
 
-          <div className="bg-secondary/30" style={{ display: 'grid', gridTemplateColumns: `repeat(${players.length}, 1fr)` }}>
-            {players.map((p, i) => (
+          <div className="bg-secondary/30" style={{ display: 'grid', gridTemplateColumns: `repeat(${displayPlayers.length}, 1fr)` }}>
+            {displayPlayers.map((p, i) => (
               <div key={i} className="py-3 text-center">
                 <motion.span
                   className={`text-lg font-mono font-bold ${p.cumulativeScore === maxScore ? 'text-primary' : 'text-foreground'}`}
@@ -177,15 +182,15 @@ export default function ClassicScorePage() {
           animate={{ opacity: 1 }}
           transition={{ delay: 1 }}
         >
-          <p className="text-xs font-arabic text-muted-foreground text-center">الهدف: {targetScore}</p>
-          {players.map((p, i) => (
+          <p className="text-xs font-arabic text-muted-foreground text-center">الهدف: {displayTargetScore}</p>
+          {displayPlayers.map((p, i) => (
             <div key={i} className="flex items-center gap-2">
               <span className="text-[10px] font-arabic text-muted-foreground w-16 truncate text-left">{p.name}</span>
               <div className="flex-1 h-3 bg-secondary rounded-full overflow-hidden border border-border">
                 <motion.div
                   className={`h-full rounded-full ${i === 0 ? 'gold-gradient' : 'bg-accent'}`}
                   initial={{ width: 0 }}
-                  animate={{ width: `${Math.min((p.cumulativeScore / targetScore) * 100, 100)}%` }}
+                  animate={{ width: `${Math.min((p.cumulativeScore / displayTargetScore) * 100, 100)}%` }}
                   transition={{ duration: 1, delay: 1 + i * 0.15 }}
                 />
               </div>

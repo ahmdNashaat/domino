@@ -1,7 +1,15 @@
-﻿import express from 'express';
+import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import {
+  DominoTile,
+  isJokerTile,
+  tilesEqual,
+  isBasra,
+  validateCapture,
+  validateBonbonaRequest,
+} from './koutchinaRules';
 
 const app = express();
 app.use(cors());
@@ -18,7 +26,6 @@ const io = new Server(httpServer, {
 
 // Types
 // -----------------------------------------------------------------------------
-type DominoTile = [number, number];
 
 interface PlayerState {
   id: string;
@@ -76,37 +83,6 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function getTileHandValue(tile: DominoTile): number {
-  const [a, b] = tile;
-  if (a === 0 && b === 0) return 12;
-  if ((a === 1 && b === 0) || (a === 0 && b === 1)) return 11;
-  if (a === 1 && b === 1) return 0; // Joker
-  return a + b;
-}
-
-function getTileTableValue(tile: DominoTile): number {
-  const [a, b] = tile;
-  if (a === 0 && b === 0) return 0;
-  if ((a === 1 && b === 0) || (a === 0 && b === 1)) return 1;
-  return a + b;
-}
-
-function isBlank(tile: DominoTile): boolean {
-  return tile[0] === 0 && tile[1] === 0;
-}
-
-function isJokerTile(tile: DominoTile): boolean {
-  return tile[0] === 1 && tile[1] === 1;
-}
-
-function isWaladTile(tile: DominoTile): boolean {
-  return (tile[0] === 1 && tile[1] === 0) || (tile[0] === 0 && tile[1] === 1);
-}
-
-function tilesEqual(a: DominoTile, b: DominoTile): boolean {
-  return (a[0] === b[0] && a[1] === b[1]) || (a[0] === b[1] && a[1] === b[0]);
-}
-
 function isDouble(tile: DominoTile): boolean {
   return tile[0] === tile[1];
 }
@@ -144,87 +120,6 @@ function placeTile(chain: DominoTile[], tile: DominoTile, end: 'left' | 'right')
     if (tile[0] === rightEnd) return [...chain, tile];
     return [...chain, [tile[1], tile[0]] as DominoTile];
   }
-}
-
-function canCapture(active: DominoTile, selected: DominoTile[], table: DominoTile[]): boolean {
-  if (selected.length === 0) return false;
-  for (const s of selected) {
-    if (!table.some(t => tilesEqual(t, s))) return false;
-  }
-  const hasBlank = selected.some(t => isBlank(t));
-  if (hasBlank && !isWaladTile(active)) return false;
-
-  const nonBlank = selected.filter(t => !isBlank(t));
-  if (nonBlank.length === 0) return true;
-
-  const activeVal = getTileHandValue(active);
-  return canPartitionCapture(activeVal, selected);
-}
-
-function isBasra(table: DominoTile[], selected: DominoTile[], active: DominoTile): boolean {
-  if (isJokerTile(active)) return false;
-  if (table.some(t => isBlank(t))) return false;
-  return table.length > 0 && selected.length === table.length && table.every(t => selected.some(s => tilesEqual(t, s)));
-}
-
-function checkBonbona(activeTile: DominoTile, opponentWinPile: DominoTile[]): boolean {
-  if (isJokerTile(activeTile)) return false;
-  if (!opponentWinPile || opponentWinPile.length === 0) return false;
-
-  const lastTile = opponentWinPile[opponentWinPile.length - 1];
-  if (isJokerTile(lastTile)) return false;
-  const activeValue = getTileHandValue(activeTile);
-  const lastTileValue = getTileTableValue(lastTile);
-
-  return activeValue === lastTileValue;
-}
-
-function canPartitionCapture(targetValue: number, selectedTiles: DominoTile[]): boolean {
-  if (selectedTiles.length === 0) return false;
-  const nonBlank = selectedTiles.filter(t => !isBlank(t));
-  if (nonBlank.length === 0) return true;
-
-  const values = nonBlank.map(t => getTileTableValue(t));
-  return partitionHelper(values, targetValue, 0);
-}
-
-function partitionHelper(values: number[], target: number, index: number): boolean {
-  if (index === values.length) return true;
-
-  const remaining = values.slice(index);
-  const subsets = findSubsetsThatSum(remaining, target);
-
-  for (const subset of subsets) {
-    const leftover = [...remaining];
-    for (const idx of subset.sort((a, b) => b - a)) {
-      leftover.splice(idx, 1);
-    }
-    if (leftover.length === 0 || partitionHelper(leftover, target, 0)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function findSubsetsThatSum(values: number[], target: number): number[][] {
-  const results: number[][] = [];
-
-  function bt(start: number, current: number[], currentSum: number) {
-    if (currentSum === target && current.length > 0) {
-      results.push([...current]);
-      return;
-    }
-    if (currentSum > target) return;
-    for (let i = start; i < values.length; i++) {
-      current.push(i);
-      bt(i + 1, current, currentSum + values[i]);
-      current.pop();
-    }
-  }
-
-  bt(0, [], 0);
-  return results;
 }
 
 function tileSum(tile: DominoTile): number {
@@ -775,44 +670,33 @@ io.on('connection', (socket) => {
     } else if (selected.length > 0 || bonbonaRequested) {
       const opp = currIdx === 0 ? room.players[1] : room.players[0];
 
-      if (selected.length > 0 && !canCapture(active, selected, room.table)) {
-        socket.emit('game:invalid', { message: 'Invalid capture' });
-        return;
+      if (selected.length > 0) {
+        const captureCheck = validateCapture(active, selected, room.table);
+        if (!captureCheck.ok) {
+          socket.emit('game:invalid', { message: captureCheck.message || 'Invalid capture' });
+          return;
+        }
       }
 
       let bonbonaIsBasra = false;
       if (bonbonaRequested) {
-        if (!opp.winPile || opp.winPile.length === 0) {
-          socket.emit('game:invalid', { message: 'Invalid bonbona' });
+        const bonbonaCheck = validateBonbonaRequest(active, opp, bonbona);
+        if (!bonbonaCheck.ok) {
+          socket.emit('game:invalid', { message: bonbonaCheck.message || 'Invalid bonbona' });
           return;
-        }
-        if (!checkBonbona(active, opp.winPile)) {
-          socket.emit('game:invalid', { message: 'Invalid bonbona' });
-          return;
-        }
-        const lastTile = opp.winPile[opp.winPile.length - 1];
-        const lastGroup = opp.lastCaptureGroup || [];
-        if (lastGroup.length === 0 || !lastGroup.some(t => tilesEqual(t, lastTile))) {
-          socket.emit('game:invalid', { message: 'Invalid bonbona' });
-          return;
-        }
-        if (bonbona.length > 0) {
-          const validSelection = bonbona.every(bt => lastGroup.some(t => tilesEqual(t, bt)));
-          if (!validSelection) {
-            socket.emit('game:invalid', { message: 'Invalid bonbona selection' });
-            return;
-          }
         }
 
-        bonbonaGroup = lastGroup;
-        bonbonaIsBasra = opp.basraTiles.some(t => tilesEqual(t, lastTile));
+        bonbonaGroup = bonbonaCheck.group || [];
+        bonbonaIsBasra = bonbonaCheck.countsAsBasra === true;
         if (bonbonaIsBasra) {
           opp.basraCount = Math.max(0, opp.basraCount - 1);
         }
 
-        opp.winPile = opp.winPile.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
-        opp.basraTiles = opp.basraTiles.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
-        popCapture(opp);
+        if (bonbonaGroup.length > 0) {
+          opp.winPile = opp.winPile.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
+          opp.basraTiles = opp.basraTiles.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
+          popCapture(opp);
+        }
       }
 
       const basra = selected.length > 0 && isBasra(room.table, selected, active);
