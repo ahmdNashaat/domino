@@ -6,7 +6,7 @@ import { GameVariant } from '@/types/contracts';
 import { useGameStore } from '@/store/gameStore';
 import { useClassicGameStore } from '@/store/classicGameStore';
 import { ArrowRight, Play, ChevronDown } from 'lucide-react';
-import PageTransition from '@/components/PageTransition';
+import PageShell from '@/components/PageShell';
 
 const graveyardLabels: Record<number, string> = {
   2: '14 قطعة',
@@ -44,10 +44,9 @@ export default function RoomPage() {
   };
 
   return (
-    <PageTransition>
-      <div className="min-h-screen bg-background flex flex-col" dir="rtl">
+    <PageShell maxWidth="lg" className="bg-background flex flex-col" dir="rtl">
         <motion.div
-          className="flex items-center gap-3 px-5 pt-6 pb-2"
+          className="flex items-center gap-3 pt-6 pb-2"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
         >
@@ -62,7 +61,7 @@ export default function RoomPage() {
           </div>
         </motion.div>
 
-        <div className="flex-1 px-5 mt-4 flex flex-col gap-4 overflow-y-auto pb-4">
+        <div className="mt-4 flex flex-col gap-4 pb-4">
           {/* Player Count (classic only) */}
           {isClassic && (
             <motion.div
@@ -166,7 +165,7 @@ export default function RoomPage() {
         </div>
 
         {/* Start Button */}
-        <div className="px-5 pb-6 pt-4">
+        <div className="sticky bottom-0 pt-3 pb-5 bg-background/80 backdrop-blur sm:static sm:bg-transparent sm:pt-4">
           <motion.button
             onClick={handleStart}
             className="w-full gold-gradient text-primary-foreground font-arabic font-bold text-lg py-4 rounded-2xl flex items-center justify-center gap-3 gold-glow-strong"
@@ -180,7 +179,6 @@ export default function RoomPage() {
             <span>ابدأ اللعب</span>
           </motion.button>
         </div>
-      </div>
-    </PageTransition>
+    </PageShell>
   );
 }

@@ -8,6 +8,7 @@ import {
   playRoundWinJingle, playRoundLoseJingle,
   playScoreRevealSound,
 } from '@/utils/soundEffects';
+import PageShell from '@/components/PageShell';
 
 export default function ClassicScorePage() {
   const navigate = useNavigate();
@@ -81,7 +82,11 @@ export default function ClassicScorePage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4 relative overflow-hidden" dir="rtl">
+    <PageShell
+      maxWidth="lg"
+      className="bg-background flex items-center justify-center relative overflow-hidden"
+      dir="rtl"
+    >
       {circles.map((c, i) => (
         <motion.div
           key={i}
@@ -225,6 +230,6 @@ export default function ClassicScorePage() {
           )}
         </motion.div>
       </motion.div>
-    </div>
+    </PageShell>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useClassicGameStore } from '@/store/classicGameStore';
@@ -7,27 +7,8 @@ import ChainArea from '@/components/game/ChainArea';
 import { ChainEnd } from '@/types/contracts';
 import { ArrowLeft, ArrowRight, Layers, SkipForward, LogOut } from 'lucide-react';
 import { playDropSound, playCaptureSound, playSelectSound } from '@/utils/soundEffects';
+import DominoTile from '@/components/game/DominoTile';
 
-
-function DotPattern({ count }: { count: number }) {
-  const positions: Record<number, [number, number][]> = {
-    0: [],
-    1: [[50, 50]],
-    2: [[30, 30], [70, 70]],
-    3: [[30, 25], [50, 50], [70, 75]],
-    4: [[30, 30], [70, 30], [30, 70], [70, 70]],
-    5: [[30, 25], [70, 25], [50, 50], [30, 75], [70, 75]],
-    6: [[30, 20], [70, 20], [30, 50], [70, 50], [30, 80], [70, 80]],
-  };
-  const pos = positions[count] || [];
-  return (
-    <svg viewBox="0 0 100 100" className="w-full h-full">
-      {pos.map((p, i) => (
-        <circle key={i} cx={p[0]} cy={p[1]} r={9} className="fill-[hsl(var(--tile-dot))]" />
-      ))}
-    </svg>
-  );
-}
 
 export default function ClassicGamePage() {
   const navigate = useNavigate();
@@ -288,7 +269,7 @@ export default function ClassicGamePage() {
                     whileTap={{ scale: 0.95 }}
                   >
                     <ArrowRight className="w-6 h-6 text-primary" />
-                    <span className="text-sm font-arabic text-foreground">يسار</span>
+                    <span className="text-sm font-arabic text-foreground">يمين</span>
                   </motion.button>
                   <motion.button
                     className="flex flex-col items-center gap-2 px-6 py-4 bg-card border border-primary/30 rounded-2xl hover:border-primary transition-colors"
@@ -296,7 +277,7 @@ export default function ClassicGamePage() {
                     whileTap={{ scale: 0.95 }}
                   >
                     <ArrowLeft className="w-6 h-6 text-primary" />
-                    <span className="text-sm font-arabic text-foreground">يمين</span>
+                    <span className="text-sm font-arabic text-foreground">شمال</span>
                   </motion.button>
                 </motion.div>
               </motion.div>
@@ -336,42 +317,34 @@ export default function ClassicGamePage() {
       {/* Player hand */}
       <div className="px-2 pb-3 pt-1">
         <div className="overflow-x-auto flex items-center justify-center scrollbar-hide">
-          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+          <div className="flex items-center justify-center gap-2 flex-wrap">
             {displayHand.map((tile, i) => {
               const playable = canAct && canPlayTile(tile, displayChainEnds);
               const selected = state.selectedTileIndex === i;
+              const tileState = selected ? 'selected' : playable ? 'capturable' : 'normal';
+              const opacity = playable || selected ? 1 : 0.6;
 
               return (
-                <motion.button
+                <motion.div
                   key={`${tile[0]}-${tile[1]}-${i}`}
-                  className={`flex flex-col w-10 h-20 tile-face rounded-lg border-2 shadow-md overflow-hidden transition-all ${
-                    selected
-                      ? 'border-primary gold-glow -translate-y-2'
-                      : playable
-                        ? 'border-accent/50 hover:border-accent'
-                        : 'border-border/30 opacity-60'
-                  }`}
-                  onClick={() => handleTileSelect(i)}
-                  whileTap={{ scale: 0.95 }}
-                  initial={{ y: 30, opacity: 0 }}
-                  animate={{ y: selected ? -8 : 0, opacity: playable || selected ? 1 : 0.6 }}
+                  initial={{ y: 24, opacity: 0 }}
+                  animate={{ y: selected ? -6 : 0, opacity }}
                   transition={{ delay: i * 0.03 }}
                 >
-                  <div className="flex-1 p-0.5">
-                    <DotPattern count={tile[0]} />
-                  </div>
-                  <div className="w-8 mx-auto h-px bg-[hsl(var(--tile-divider))]" />
-                  <div className="flex-1 p-0.5">
-                    <DotPattern count={tile[1]} />
-                  </div>
-                </motion.button>
+                  <DominoTile
+                    tile={tile}
+                    size="md"
+                    state={tileState}
+                    onClick={canAct ? () => handleTileSelect(i) : undefined}
+                  />
+                </motion.div>
               );
             })}
           </div>
         </div>
         {isFriend && (
           <p className="text-center text-xs font-arabic text-muted-foreground mt-1">
-            {currentPlayer.name} ({currentPlayer.hand.length} قطع)
+            {currentPlayer.name} ({currentPlayer.hand.length} قطعة)
           </p>
         )}
       </div>

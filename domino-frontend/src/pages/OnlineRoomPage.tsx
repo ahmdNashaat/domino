@@ -6,6 +6,7 @@ import { useOnlineStore } from '@/store/onlineStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { ArrowRight, Copy, Check, Wifi, WifiOff, Globe, Plus, DoorOpen, ChevronDown, Settings2, Delete } from 'lucide-react';
 import type { GameVariant } from '@/types/contracts';
+import PageShell from '@/components/PageShell';
 
 type Mode = 'choose' | 'create' | 'join';
 type Tab = 'create' | 'join';
@@ -21,10 +22,11 @@ export default function OnlineRoomPage() {
   const [useCustom, setUseCustom] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [gameVariant, setGameVariant] = useState<GameVariant>('classic');
+  const [gameVariant, setGameVariant] = useState<GameVariant>('koutchina');
+  const [playerCount, setPlayerCount] = useState(2);
 
   const { createRoom, joinRoom, leaveRoom } = useSocket();
-  const { connected, roomCode, roomStatus, opponentName, error } = useOnlineStore();
+  const { connected, roomCode, roomStatus, error, roomPlayers, maxPlayers } = useOnlineStore();
 
   const scoreOptions = gameVariant === 'koutchina' ? [600, 1000] : [100, 150];
   const defaultScore = gameVariant === 'koutchina' ? 600 : 100;
@@ -41,7 +43,8 @@ export default function OnlineRoomPage() {
     const name = savedName.trim() || 'لاعب';
     const score = useCustom ? (parseInt(customScore) || defaultScore) : targetScore;
     useOnlineStore.getState().setPlayerName(name);
-    createRoom(name, score, false, undefined, gameVariant);
+    const count = gameVariant === 'classic' ? playerCount : undefined;
+    createRoom(name, score, false, undefined, gameVariant, count);
   };
 
   const handleJoin = () => {
@@ -88,10 +91,15 @@ export default function OnlineRoomPage() {
     }
   }, [roomStatus, navigate]);
 
-  // ── Waiting for opponent ──────────────────────────────
-  if (roomStatus === 'waiting' && roomCode && !opponentName) {
+  // ── Waiting for players ──────────────────────────────
+  if (roomStatus === 'waiting' && roomCode) {
+    const remaining = Math.max(0, maxPlayers - roomPlayers.length);
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative overflow-hidden" dir="rtl">
+      <PageShell
+        maxWidth="lg"
+        className="bg-background flex flex-col items-center justify-center relative overflow-hidden"
+        dir="rtl"
+      >
         {/* Star particles */}
         {[...Array(15)].map((_, i) => (
           <motion.div
@@ -123,7 +131,7 @@ export default function OnlineRoomPage() {
 
           {/* Room Code Card */}
           <div className="w-full bg-card/80 border border-border rounded-2xl p-6 text-center backdrop-blur-sm">
-            <p className="text-sm text-muted-foreground font-arabic mb-4">شارك هذا الكود مع صديقك</p>
+            <p className="text-sm text-muted-foreground font-arabic mb-4">شارك هذا الكود مع أصدقائك</p>
             <div className="flex justify-center gap-2 mb-4" dir="ltr">
               {roomCode.split('').map((char, i) => (
                 <motion.div
@@ -145,6 +153,26 @@ export default function OnlineRoomPage() {
               {copied ? <Check className="w-4 h-4 text-accent" /> : <Copy className="w-4 h-4" />}
               {copied ? 'تم النسخ!' : 'نسخ الكود'}
             </motion.button>
+
+            <div className="mt-6 text-right">
+              <div className="flex items-center justify-between text-xs text-muted-foreground font-arabic mb-2">
+                <span>اللاعبين</span>
+                <span className="font-mono">{roomPlayers.length}/{maxPlayers}</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {roomPlayers.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between px-3 py-2 bg-secondary/70 border border-border rounded-xl">
+                    <span className="font-arabic text-foreground">{p.name}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono">متصل</span>
+                  </div>
+                ))}
+                {Array.from({ length: remaining }).map((_, i) => (
+                  <div key={`slot-${i}`} className="px-3 py-2 bg-secondary/30 border border-dashed border-border rounded-xl text-xs font-arabic text-muted-foreground">
+                    في انتظار لاعب...
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Waiting indicator */}
@@ -162,28 +190,7 @@ export default function OnlineRoomPage() {
             <p className="text-sm text-muted-foreground font-arabic">في انتظار اكتمال اللاعبين</p>
           </div>
         </motion.div>
-      </div>
-    );
-  }
-
-  // ── Opponent joined ──────────────────────────────
-  if (roomStatus === 'waiting' && opponentName) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4" dir="rtl">
-        <motion.div
-          className="w-full max-w-md flex flex-col items-center gap-6 text-center"
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-        >
-          <h2 className="text-2xl font-bold gold-text font-arabic">🎮 {opponentName} انضم!</h2>
-          <p className="text-muted-foreground font-arabic">اللعبة هتبدأ حالاً...</p>
-          <motion.div
-            className="w-14 h-14 border-4 border-primary border-t-transparent rounded-full"
-            animate={{ rotate: 360 }}
-            transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-          />
-        </motion.div>
-      </div>
+      </PageShell>
     );
   }
 
@@ -192,7 +199,7 @@ export default function OnlineRoomPage() {
   // ── Disconnected ──────────────────────────────
   if (roomStatus === 'disconnected') {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4" dir="rtl">
+      <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
         <motion.div className="w-full max-w-md flex flex-col items-center gap-6 text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <WifiOff className="w-16 h-16 text-destructive" />
           <h2 className="text-2xl font-bold text-destructive font-arabic">الخصم قطع الاتصال</h2>
@@ -204,13 +211,17 @@ export default function OnlineRoomPage() {
             رجوع للرئيسية
           </motion.button>
         </motion.div>
-      </div>
+      </PageShell>
     );
   }
 
   // ── Main Room UI with Tabs ──────────────────────────────
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center p-4 relative overflow-hidden" dir="rtl">
+    <PageShell
+      maxWidth="lg"
+      className="bg-background flex flex-col items-center relative overflow-hidden"
+      dir="rtl"
+    >
       {/* Stars */}
       {[...Array(20)].map((_, i) => (
         <motion.div
@@ -297,7 +308,7 @@ export default function OnlineRoomPage() {
                 <label className="text-sm font-arabic text-muted-foreground">نوع اللعبة</label>
                 <div className="grid grid-cols-2 gap-2">
                   <motion.button
-                    onClick={() => { setGameVariant('koutchina'); setTargetScore(600); setUseCustom(false); }}
+                    onClick={() => { setGameVariant('koutchina'); setTargetScore(600); setUseCustom(false); setPlayerCount(2); }}
                     className={`py-3.5 rounded-xl font-arabic font-bold text-base transition-all border flex items-center justify-center gap-2 ${
                       gameVariant === 'koutchina'
                         ? 'bg-primary/15 border-primary/50 text-primary'
@@ -308,7 +319,7 @@ export default function OnlineRoomPage() {
                     🃏 كوتشينة
                   </motion.button>
                   <motion.button
-                    onClick={() => { setGameVariant('classic'); setTargetScore(100); setUseCustom(false); }}
+                    onClick={() => { setGameVariant('classic'); setTargetScore(100); setUseCustom(false); setPlayerCount(2); }}
                     className={`py-3.5 rounded-xl font-arabic font-bold text-base transition-all border flex items-center justify-center gap-2 ${
                       gameVariant === 'classic'
                         ? 'bg-primary/15 border-primary/50 text-primary'
@@ -320,6 +331,28 @@ export default function OnlineRoomPage() {
                   </motion.button>
                 </div>
               </div>
+
+              {gameVariant === 'classic' && (
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-arabic text-muted-foreground">عدد اللاعبين</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[2, 3, 4].map(n => (
+                      <motion.button
+                        key={n}
+                        onClick={() => setPlayerCount(n)}
+                        className={`py-3 rounded-xl font-mono font-bold text-lg transition-all border ${
+                          playerCount === n
+                            ? 'bg-primary/15 border-primary/50 text-primary'
+                            : 'bg-secondary border-border text-muted-foreground hover:border-primary/30'
+                        }`}
+                        whileTap={{ scale: 0.96 }}
+                      >
+                        {n}
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Game settings collapsible */}
               <button
@@ -450,6 +483,6 @@ export default function OnlineRoomPage() {
         {/* Footer */}
         <p className="text-center text-sm text-muted-foreground font-arabic mt-2">في انتظار اكتمال اللاعبين</p>
       </motion.div>
-    </div>
+    </PageShell>
   );
 }

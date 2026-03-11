@@ -10,7 +10,24 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+.vite
+coverage
 *.local
+
+# Project structure
+/domino-frontend/node_modules
+/domino-frontend/dist
+/domino-frontend/dist-ssr
+/domino-frontend/.vite
+/domino-frontend/coverage
+/domino-frontend/.env
+/domino-frontend/.env.*
+
+/domino-backend/node_modules
+/domino-backend/dist
+/domino-backend/coverage
+/domino-backend/.env
+/domino-backend/.env.*
 
 # Editor directories and files
 .vscode/*

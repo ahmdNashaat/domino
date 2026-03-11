@@ -42,6 +42,7 @@ export function useSocket() {
       socket.removeAllListeners('room:joined');
       socket.removeAllListeners('room:error');
       socket.removeAllListeners('room:opponent_joined');
+      socket.removeAllListeners('room:state');
       socket.removeAllListeners('game:started');
       socket.removeAllListeners('game:state');
       socket.removeAllListeners('game:event');
@@ -83,6 +84,16 @@ export function useSocket() {
 
       socket.on('room:opponent_joined', (data: { opponentName: string }) => {
         useOnlineStore.getState().setOpponentName(data.opponentName);
+      });
+
+      socket.on('room:state', (data: { roomCode: string; players: { id: string; name: string }[]; maxPlayers: number; status: any; variant: any }) => {
+        useOnlineStore.getState().applyRoomState({
+          roomCode: data.roomCode,
+          players: data.players,
+          maxPlayers: data.maxPlayers,
+          status: data.status,
+          variant: data.variant,
+        });
       });
 
       socket.on('game:started', (data: { playerId: string }) => {
@@ -128,11 +139,12 @@ export function useSocket() {
     targetScore: number,
     timerEnabled: boolean,
     timerSeconds?: number,
-    gameVariant: string = 'koutchina'
+    gameVariant: string = 'koutchina',
+    playerCount?: number
   ) => {
     useOnlineStore.getState().setRoomStatus('creating');
     useOnlineStore.getState().setGameVariant(gameVariant as any);
-    socket.emit('room:create', { playerName, targetScore, timerEnabled, timerSeconds, gameVariant });
+    socket.emit('room:create', { playerName, targetScore, timerEnabled, timerSeconds, gameVariant, playerCount });
   }, []);
 
   const joinRoom = useCallback((roomCode: string, playerName: string) => {
@@ -140,7 +152,7 @@ export function useSocket() {
     socket.emit('room:join', { roomCode, playerName });
   }, []);
 
-  const sendAction = useCallback((data: { type?: string; end?: string; selectedTiles?: [number, number][]; bonbonaTiles?: [number, number][] }) => {
+  const sendAction = useCallback((data: { type?: string; end?: string; tileIndex?: number; selectedTiles?: [number, number][]; bonbonaTiles?: [number, number][]; bonbona?: boolean }) => {
     socket.emit('game:action', data);
   }, []);
 

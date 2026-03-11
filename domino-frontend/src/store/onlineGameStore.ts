@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { DominoTile, GameEvent, GamePhase } from '@/types/contracts';
+import { DominoTile, GameEvent, GamePhase, ClassicGameEvent } from '@/types/contracts';
 import { tilesEqual, isBlankTile, isWaladTile } from '@/utils/gameEngine';
 
 interface OnlinePlayer {
@@ -15,23 +15,35 @@ interface OnlinePlayer {
   lastCaptureGroup: DominoTile[];
 }
 
+interface OnlineClassicPlayer {
+  id: string;
+  name: string;
+  handCount: number;
+  score: number;
+  cumulativeScore: number;
+}
+
 export interface OnlineGameState {
   phase: GamePhase;
   table: DominoTile[];
   chain: DominoTile[]; // for classic
   chainEnds: [number, number]; // for classic
-  boneyard: DominoTile[]; // for classic
+  boneyard: DominoTile[]; // koutchina only (classic uses count)
+  boneyardCount: number; // classic only
   variant: 'koutchina' | 'classic';
   me: OnlinePlayer;
   opponent: OnlinePlayer;
+  classicPlayers: OnlineClassicPlayer[];
+  myHandClassic: DominoTile[];
   isMyTurn: boolean;
+  currentPlayerId: string;
   activeCardIndex: number;
   selectedTileIndex: number; // for classic
   selectedTableTiles: DominoTile[];
   selectedBonbonaTiles: DominoTile[];
   roundNumber: number;
   targetScore: number;
-  lastEvent: GameEvent | null;
+  lastEvent: GameEvent | ClassicGameEvent | null;
   myPlayerId: string; // 'player0' or 'player1'
 
   // Actions (local UI only)
@@ -44,7 +56,7 @@ export interface OnlineGameState {
   // Server sync
   applyServerState: (data: ServerGameState) => void;
   setMyPlayerId: (id: string) => void;
-  setEvent: (event: GameEvent) => void;
+  setEvent: (event: GameEvent | ClassicGameEvent) => void;
   resetOnlineGame: () => void;
 }
 
@@ -53,13 +65,15 @@ export interface ServerGameState {
   table: DominoTile[];
   chain?: DominoTile[]; // for classic
   chainEnds?: [number, number]; // for classic
-  boneyard?: DominoTile[]; // for classic
+  boneyard?: DominoTile[]; // koutchina only
+  boneyardCount?: number; // classic only
   currentPlayerId: string;
   activeCardIndex: number;
   roundNumber: number;
   targetScore: number;
-  lastEvent?: GameEvent | null;
+  lastEvent?: GameEvent | ClassicGameEvent | null;
   variant?: 'koutchina' | 'classic';
+  players?: OnlineClassicPlayer[]; // classic summary
 
   // My data
   myHand: DominoTile[];
@@ -103,10 +117,14 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
   chain: [],
   chainEnds: [-1, -1],
   boneyard: [],
+  boneyardCount: 0,
   variant: 'koutchina',
   me: createEmptyPlayer('أنا'),
   opponent: createEmptyPlayer('الخصم'),
+  classicPlayers: [],
+  myHandClassic: [],
   isMyTurn: false,
+  currentPlayerId: '',
   activeCardIndex: -1,
   selectedTileIndex: -1,
   selectedTableTiles: [],
@@ -116,7 +134,7 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
   lastEvent: null,
   myPlayerId: '',
 
-  selectTile: (index) => set({ selectedTileIndex: index }),
+  selectTile: (index) => set((s) => ({ selectedTileIndex: index === s.selectedTileIndex ? -1 : index })),
 
   selectTableTile: (tile) => {
     const state = get();
@@ -162,14 +180,44 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
     const state = get();
     const isMyTurn = data.currentPlayerId === state.myPlayerId;
 
+    if (data.variant === 'classic') {
+      set({
+        phase: data.phase,
+        table: [],
+        chain: data.chain || [],
+        chainEnds: data.chainEnds || [-1, -1],
+        boneyard: [],
+        boneyardCount: data.boneyardCount ?? 0,
+        variant: 'classic',
+        classicPlayers: data.players || [],
+        myHandClassic: data.myHand || [],
+        isMyTurn,
+        currentPlayerId: data.currentPlayerId,
+        activeCardIndex: -1,
+        roundNumber: data.roundNumber,
+        targetScore: data.targetScore,
+        lastEvent: data.lastEvent || null,
+        selectedTileIndex: -1,
+        selectedTableTiles: [],
+        selectedBonbonaTiles: [],
+        me: createEmptyPlayer('أنا'),
+        opponent: createEmptyPlayer('الخصم'),
+      });
+      return;
+    }
+
     set({
       phase: data.phase,
       table: data.table || [],
       chain: data.chain || [],
       chainEnds: data.chainEnds || [-1, -1],
       boneyard: data.boneyard || [],
+      boneyardCount: 0,
       variant: data.variant || 'koutchina',
+      classicPlayers: [],
+      myHandClassic: [],
       isMyTurn,
+      currentPlayerId: data.currentPlayerId,
       activeCardIndex: data.activeCardIndex,
       roundNumber: data.roundNumber,
       targetScore: data.targetScore,
@@ -211,10 +259,14 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
       chain: [],
       chainEnds: [-1, -1],
       boneyard: [],
+      boneyardCount: 0,
       variant: 'koutchina',
       me: createEmptyPlayer('أنا'),
       opponent: createEmptyPlayer('الخصم'),
+      classicPlayers: [],
+      myHandClassic: [],
       isMyTurn: false,
+      currentPlayerId: '',
       activeCardIndex: -1,
       selectedTileIndex: -1,
       selectedTableTiles: [],

@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Settings, Trophy, Sparkles, Zap, Users } from 'lucide-react';
 import { useStatsStore } from '@/store/statsStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import PageTransition from '@/components/PageTransition';
+import PageShell from '@/components/PageShell';
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -11,8 +11,11 @@ export default function HomePage() {
   const { playerName, playerAvatar } = useSettingsStore();
 
   return (
-    <PageTransition>
-      <div className="min-h-screen bg-gradient-to-br from-background via-secondary to-muted flex flex-col relative overflow-hidden" dir="rtl">
+    <PageShell
+      maxWidth="full"
+      className="bg-gradient-to-br from-background via-secondary to-muted flex flex-col relative overflow-hidden"
+      dir="rtl"
+    >
         
         {/* Animated background blobs */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -43,7 +46,7 @@ export default function HomePage() {
 
         {/* Header */}
         <motion.div
-          className="relative z-10 px-5 py-5 flex items-center justify-between"
+          className="relative z-10 py-4 flex items-center justify-between"
           initial={{ y: -50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ type: 'spring', stiffness: 200, damping: 25 }}
@@ -79,11 +82,11 @@ export default function HomePage() {
         </motion.div>
 
         {/* Main Content */}
-        <div className="flex-1 flex flex-col items-center justify-center px-6 pb-12 relative z-10">
+        <div className="flex-1 flex flex-col items-center justify-start pb-10 pt-4 relative z-10">
           
           {/* Domino Tiles */}
           <motion.div
-            className="mb-10"
+            className="mb-8"
             initial={{ scale: 0, rotate: -180 }}
             animate={{ scale: 1, rotate: 0 }}
             transition={{ type: 'spring', stiffness: 200, damping: 20, delay: 0.2 }}
@@ -150,7 +153,7 @@ export default function HomePage() {
 
           {/* Title */}
           <motion.div
-            className="text-center mb-12"
+            className="text-center mb-8"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
@@ -256,7 +259,6 @@ export default function HomePage() {
             اختر نمط اللعب للبدء
           </motion.p>
         </div>
-      </div>
-    </PageTransition>
+    </PageShell>
   );
 }

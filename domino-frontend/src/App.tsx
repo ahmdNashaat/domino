@@ -3,7 +3,8 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { cloneElement } from "react";
+import { BrowserRouter, useLocation, useRoutes } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import SplashPage from "./pages/SplashPage";
 import HomePage from "./pages/HomePage";
@@ -21,6 +22,7 @@ import { useAndroidBackButton } from "./hooks/useAndroidBackButton";
 import { useAppStateRestore } from "./hooks/useAppStateRestore";
 
 import NotFound from "./pages/NotFound";
+import PageTransition from "./components/PageTransition";
 
 const queryClient = new QueryClient();
 
@@ -28,24 +30,28 @@ function AnimatedRoutes() {
   const location = useLocation();
   useAndroidBackButton();
   useAppStateRestore();
+  const element = useRoutes(
+    [
+      { path: "/", element: <PageTransition><SplashPage /></PageTransition> },
+      { path: "/home", element: <PageTransition><HomePage /></PageTransition> },
+      { path: "/mode", element: <PageTransition><ModePage /></PageTransition> },
+      { path: "/room", element: <PageTransition><RoomPage /></PageTransition> },
+      { path: "/online", element: <PageTransition><OnlineRoomPage /></PageTransition> },
+      { path: "/online/game", element: <PageTransition><OnlineGamePage /></PageTransition> },
+      { path: "/online/score", element: <PageTransition><OnlineScorePage /></PageTransition> },
+      { path: "/game", element: <PageTransition><GamePage /></PageTransition> },
+      { path: "/score", element: <PageTransition><ScorePage /></PageTransition> },
+      { path: "/classic-game", element: <PageTransition><ClassicGamePage /></PageTransition> },
+      { path: "/classic-score", element: <PageTransition><ClassicScorePage /></PageTransition> },
+      { path: "/settings", element: <PageTransition><SettingsPage /></PageTransition> },
+      { path: "*", element: <PageTransition><NotFound /></PageTransition> },
+    ],
+    location
+  );
+
   return (
-    <AnimatePresence>
-      <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<SplashPage />} />
-        <Route path="/home" element={<HomePage />} />
-        <Route path="/mode" element={<ModePage />} />
-        <Route path="/room" element={<RoomPage />} />
-        <Route path="/online" element={<OnlineRoomPage />} />
-        <Route path="/online/game" element={<OnlineGamePage />} />
-        <Route path="/online/score" element={<OnlineScorePage />} />
-        <Route path="/game" element={<GamePage />} />
-        <Route path="/score" element={<ScorePage />} />
-        <Route path="/classic-game" element={<ClassicGamePage />} />
-        <Route path="/classic-score" element={<ClassicScorePage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+    <AnimatePresence mode="wait">
+      {element ? cloneElement(element, { key: location.pathname }) : null}
     </AnimatePresence>
   );
 }
@@ -57,7 +63,9 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <AnimatedRoutes />
+          <div className="relative min-h-[100dvh]">
+            <AnimatedRoutes />
+          </div>
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>

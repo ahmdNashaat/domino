@@ -5,7 +5,7 @@ export type TileSize = 'sm' | 'md' | 'lg';
 
 export type BotDifficulty = 'easy' | 'medium' | 'hard';
 export type GameMode = 'bot' | 'friend';
-export type GamePhase = 'idle' | 'playing' | 'waiting_player' | 'bot_thinking' | 'round_end' | 'game_over';
+export type GamePhase = 'idle' | 'playing' | 'waiting_player' | 'bot_thinking' | 'round_end' | 'game_over' | 'blocked';
 export type GameVariant = 'koutchina' | 'classic';
 export type ClassicGamePhase = 'idle' | 'playing' | 'bot_thinking' | 'round_end' | 'game_over' | 'blocked';
 

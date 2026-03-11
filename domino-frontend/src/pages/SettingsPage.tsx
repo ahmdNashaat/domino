@@ -8,7 +8,7 @@ import {
   CardStyle, TableStyle, AppTheme,
   CARD_STYLES, TABLE_STYLES, APP_THEMES, AVATAR_OPTIONS,
 } from '@/store/settingsStore';
-import PageTransition from '@/components/PageTransition';
+import PageShell from '@/components/PageShell';
 import { toast } from 'sonner';
 
 function SectionTitle({ icon, title }: { icon: React.ReactNode; title: string }) {
@@ -132,11 +132,10 @@ export default function SettingsPage() {
   };
 
   return (
-    <PageTransition>
-      <div className="min-h-screen bg-background flex flex-col items-center p-4 overflow-y-auto relative" dir="rtl">
+    <PageShell maxWidth="lg" className="bg-background flex flex-col items-center relative" dir="rtl">
         {/* Header */}
         <motion.div
-          className="w-full max-w-lg flex items-center gap-3 mb-8"
+          className="w-full flex items-center gap-3 mb-6 pt-6"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
         >
@@ -151,7 +150,7 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-bold gold-text font-arabic flex-1">الإعدادات</h1>
         </motion.div>
 
-        <div className="w-full max-w-lg flex flex-col gap-8">
+        <div className="w-full flex flex-col gap-8 pb-6">
           {/* Player Name */}
           <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
             <SectionTitle icon={<User className="w-5 h-5" />} title="اسم اللاعب" />
@@ -245,18 +244,20 @@ export default function SettingsPage() {
           </motion.section>
 
           {/* Save Button */}
-          <motion.button
-            onClick={handleSave}
-            className="w-full gold-gradient text-primary-foreground font-arabic font-bold text-lg py-4 rounded-2xl flex items-center justify-center gap-3 gold-glow-strong"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            <Check className="w-6 h-6" />
-            <span>حفظ الإعدادات</span>
-          </motion.button>
+          <div className="sticky bottom-0 bg-background/80 backdrop-blur pt-3 pb-4 sm:static sm:bg-transparent">
+            <motion.button
+              onClick={handleSave}
+              className="w-full gold-gradient text-primary-foreground font-arabic font-bold text-lg py-4 rounded-2xl flex items-center justify-center gap-3 gold-glow-strong"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Check className="w-6 h-6" />
+              <span>حفظ الإعدادات</span>
+            </motion.button>
+          </div>
 
           <motion.p
             className="text-center text-[10px] text-muted-foreground/50 font-mono tracking-wider pb-6"
@@ -267,7 +268,6 @@ export default function SettingsPage() {
             NASHAAT GAMING © 2026
           </motion.p>
         </div>
-      </div>
-    </PageTransition>
+    </PageShell>
   );
 }

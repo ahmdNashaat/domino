@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
-import PageTransition from '@/components/PageTransition';
+import PageShell from '@/components/PageShell';
 
 const modes = [
   {
@@ -24,10 +24,9 @@ export default function ModePage() {
   const navigate = useNavigate();
 
   return (
-    <PageTransition>
-      <div className="min-h-screen bg-background flex flex-col" dir="rtl">
+    <PageShell maxWidth="lg" className="bg-background flex flex-col" dir="rtl">
         <motion.div
-          className="flex items-center gap-3 px-5 pt-6 pb-2"
+          className="flex items-center gap-3 pt-6 pb-2"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
         >
@@ -43,7 +42,7 @@ export default function ModePage() {
           </div>
         </motion.div>
 
-        <div className="flex-1 px-5 mt-6 flex flex-col gap-5">
+        <div className="mt-4 flex flex-col gap-4 pb-6">
           {modes.map((mode, i) => (
             <motion.button
               key={mode.key}
@@ -74,7 +73,6 @@ export default function ModePage() {
             </motion.button>
           ))}
         </div>
-      </div>
-    </PageTransition>
+    </PageShell>
   );
 }
