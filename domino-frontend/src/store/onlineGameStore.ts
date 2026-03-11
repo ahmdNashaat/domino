@@ -202,6 +202,9 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
 
     if (data.variant === 'classic') {
       const phaseTerminal = data.phase === 'round_end' || data.phase === 'game_over';
+      const keepClassicSummary =
+        state.lastRoundSummary?.variant === 'classic' &&
+        state.lastRoundSummary.roundNumber === data.roundNumber;
       const classicSummary: OnlineLastRoundSummary | null = phaseTerminal
         ? {
           variant: 'classic',
@@ -211,7 +214,7 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
           targetScore: data.targetScore,
           roundNumber: data.roundNumber,
         }
-        : (data.phase === 'playing' ? null : state.lastRoundSummary);
+        : (keepClassicSummary ? state.lastRoundSummary : null);
 
       set({
         phase: data.phase,
@@ -266,6 +269,9 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
     };
 
     const phaseTerminal = data.phase === 'round_end' || data.phase === 'game_over';
+    const keepKoutchinaSummary =
+      state.lastRoundSummary?.variant === 'koutchina' &&
+      state.lastRoundSummary.roundNumber === data.roundNumber;
     const koutchinaSummary: OnlineLastRoundSummary | null = phaseTerminal
       ? {
         variant: 'koutchina',
@@ -275,7 +281,7 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
         targetScore: data.targetScore,
         roundNumber: data.roundNumber,
       }
-      : (data.phase === 'playing' ? null : state.lastRoundSummary);
+      : (keepKoutchinaSummary ? state.lastRoundSummary : null);
 
     set({
       phase: data.phase,

@@ -22,11 +22,13 @@ export default function ClassicScorePage() {
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
   const scoreReady = isValidPhase || !!lastRound;
   const displayPhase = isValidPhase ? phase : lastRound?.phase;
-  const displayPlayers = !isValidPhase && lastRound ? lastRound.players : players;
+  const displayPlayers = (!isValidPhase && lastRound ? lastRound.players : players) || [];
   const displayTargetScore = !isValidPhase && lastRound ? lastRound.targetScore : targetScore;
+  const safeTargetScore = displayTargetScore > 0 ? displayTargetScore : 1;
 
   const isGameOver = displayPhase === 'game_over';
   const played = useRef(false);
+  const hasPlayers = displayPlayers.length > 0;
 
   const humanPlayer = displayPlayers[0];
   const maxScore = Math.max(0, ...displayPlayers.map(p => p.cumulativeScore));
@@ -74,7 +76,20 @@ export default function ClassicScorePage() {
     return () => { clearTimeout(t); clearTimeout(t2); };
   }, [scoreReady, isGameOver, isDraw, humanWon, humanPlayer]);
 
-  if (!scoreReady || !displayPlayers || displayPlayers.length === 0) return null;
+  if (!scoreReady) {
+    return (
+      <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
+        <p className="text-muted-foreground font-arabic animate-pulse">Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„...</p>
+      </PageShell>
+    );
+  }
+  if (!hasPlayers) {
+    return (
+      <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
+        <p className="text-muted-foreground font-arabic">بيانات الجولة غير متاحة</p>
+      </PageShell>
+    );
+  }
 
   const handleNextRound = () => {
     nextRound();
@@ -190,7 +205,7 @@ export default function ClassicScorePage() {
                 <motion.div
                   className={`h-full rounded-full ${i === 0 ? 'gold-gradient' : 'bg-accent'}`}
                   initial={{ width: 0 }}
-                  animate={{ width: `${Math.min((p.cumulativeScore / displayTargetScore) * 100, 100)}%` }}
+                  animate={{ width: `${Math.min((p.cumulativeScore / safeTargetScore) * 100, 100)}%` }}
                   transition={{ duration: 1, delay: 1 + i * 0.15 }}
                 />
               </div>

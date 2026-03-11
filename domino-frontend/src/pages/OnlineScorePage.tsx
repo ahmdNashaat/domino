@@ -41,6 +41,7 @@ function OnlineKoutchinaScorePage() {
   const displayMe = !isValidPhase && koutchinaSnapshot ? koutchinaSnapshot.me : me;
   const displayOpponent = !isValidPhase && koutchinaSnapshot ? koutchinaSnapshot.opponent : opponent;
   const displayTargetScore = !isValidPhase && koutchinaSnapshot ? koutchinaSnapshot.targetScore : targetScore;
+  const safeTargetScore = displayTargetScore > 0 ? displayTargetScore : 1;
 
   const isGameOver = displayPhase === 'game_over';
   const pCumScore = displayMe?.cumulativeScore ?? 0;
@@ -263,13 +264,13 @@ function OnlineKoutchinaScorePage() {
             <motion.div
               className="absolute left-0 top-0 h-full rounded-full bg-destructive"
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min((oCumScore / displayTargetScore) * 50, 50)}%` }}
+              animate={{ width: `${Math.min((oCumScore / safeTargetScore) * 50, 50)}%` }}
               transition={{ duration: 1.2, delay: 1.5 }}
             />
             <motion.div
               className="absolute right-0 top-0 h-full rounded-full gold-gradient"
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min((pCumScore / displayTargetScore) * 50, 50)}%` }}
+              animate={{ width: `${Math.min((pCumScore / safeTargetScore) * 50, 50)}%` }}
               transition={{ duration: 1.2, delay: 1.5 }}
             />
             <div className="absolute left-1/2 top-0 w-0.5 h-full bg-accent -translate-x-1/2" />
@@ -312,7 +313,7 @@ function OnlineClassicScorePage() {
   const navigate = useNavigate();
   const phase = useOnlineGameStore(s => s.phase);
   const players = useOnlineGameStore(s => s.classicPlayers);
-  const targetScore = useOnlineGameStore(s => s.targetScore);
+  const targetScore = useOnlineGameStore(s => s.targetScore) || 100;
   const myId = useOnlineGameStore(s => s.myPlayerId);
   const resetOnlineGame = useOnlineGameStore(s => s.resetOnlineGame);
   const snapshot = useOnlineGameStore(s => s.lastRoundSummary);
@@ -322,12 +323,14 @@ function OnlineClassicScorePage() {
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
   const scoreReady = isValidPhase || !!classicSnapshot;
   const displayPhase = isValidPhase ? phase : classicSnapshot?.phase;
-  const displayPlayers = !isValidPhase && classicSnapshot ? classicSnapshot.classicPlayers : players;
+  const displayPlayers = (!isValidPhase && classicSnapshot ? classicSnapshot.classicPlayers : players) || [];
   const displayTargetScore = !isValidPhase && classicSnapshot ? classicSnapshot.targetScore : targetScore;
+  const safeTargetScore = displayTargetScore > 0 ? displayTargetScore : 1;
   const displayMyId = !isValidPhase && classicSnapshot ? classicSnapshot.myPlayerId : myId;
 
   const isGameOver = displayPhase === 'game_over';
   const played = useRef(false);
+  const hasPlayers = displayPlayers.length > 0;
 
   const maxScore = Math.max(0, ...displayPlayers.map(p => p.cumulativeScore));
   const winners = displayPlayers.filter(p => p.cumulativeScore === maxScore);
@@ -385,6 +388,14 @@ function OnlineClassicScorePage() {
     return (
       <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
         <p className="text-muted-foreground font-arabic animate-pulse">جاري التحميل...</p>
+      </PageShell>
+    );
+  }
+
+  if (!hasPlayers) {
+    return (
+      <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
+        <p className="text-muted-foreground font-arabic">بيانات الجولة غير متاحة</p>
       </PageShell>
     );
   }
@@ -503,7 +514,7 @@ function OnlineClassicScorePage() {
                 <motion.div
                   className={`h-full rounded-full ${p.id === displayMyId ? 'gold-gradient' : 'bg-accent'}`}
                   initial={{ width: 0 }}
-                  animate={{ width: `${Math.min((p.cumulativeScore / displayTargetScore) * 100, 100)}%` }}
+                  animate={{ width: `${Math.min((p.cumulativeScore / safeTargetScore) * 100, 100)}%` }}
                   transition={{ duration: 1, delay: 1 }}
                 />
               </div>

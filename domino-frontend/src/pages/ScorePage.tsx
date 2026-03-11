@@ -26,6 +26,7 @@ export default function ScorePage() {
   const displayPlayer = !isValidPhase && lastRound ? lastRound.player : player;
   const displayOpponent = !isValidPhase && lastRound ? lastRound.opponent : opponent;
   const displayTargetScore = !isValidPhase && lastRound ? lastRound.targetScore : targetScore;
+  const safeTargetScore = displayTargetScore > 0 ? displayTargetScore : 1;
 
   const isGameOver = displayPhase === 'game_over';
   const pCumScore = displayPlayer?.cumulativeScore ?? 0;
@@ -247,13 +248,13 @@ export default function ScorePage() {
             <motion.div
               className="absolute left-0 top-0 h-full rounded-full bg-destructive"
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min((oCumScore / displayTargetScore) * 50, 50)}%` }}
+              animate={{ width: `${Math.min((oCumScore / safeTargetScore) * 50, 50)}%` }}
               transition={{ duration: 1.2, delay: 1.5 }}
             />
             <motion.div
               className="absolute right-0 top-0 h-full rounded-full gold-gradient"
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min((pCumScore / displayTargetScore) * 50, 50)}%` }}
+              animate={{ width: `${Math.min((pCumScore / safeTargetScore) * 50, 50)}%` }}
               transition={{ duration: 1.2, delay: 1.5 }}
             />
             <div className="absolute left-1/2 top-0 w-0.5 h-full bg-accent -translate-x-1/2" />
@@ -334,4 +335,3 @@ function PlayerScore({ name, score, color, isPlayer = false }: { name: string; s
     </div>
   );
 }
-
