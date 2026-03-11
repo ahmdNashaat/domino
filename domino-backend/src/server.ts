@@ -22,6 +22,7 @@ interface PlayerState {
   cumulativeScore: number;
   lastCapture: DominoTile | null;
   lastCaptureGroup: DominoTile[];
+  captureHistory: DominoTile[][];
 }
 
 interface Room {
@@ -235,7 +236,22 @@ function findRoom(socketId: string): Room | undefined {
 }
 
 function createPlayer(id: string, name: string): PlayerState {
-  return { id, name, hand: [], winPile: [], basraCount: 0, basraTiles: [], score: 0, cumulativeScore: 0, lastCapture: null, lastCaptureGroup: [] };
+  return { id, name, hand: [], winPile: [], basraCount: 0, basraTiles: [], score: 0, cumulativeScore: 0, lastCapture: null, lastCaptureGroup: [], captureHistory: [] };
+}
+
+function pushCapture(player: PlayerState, group: DominoTile[]) {
+  player.captureHistory.push(group);
+  player.lastCaptureGroup = group;
+  player.lastCapture = group.length > 0 ? group[group.length - 1] : null;
+}
+
+function popCapture(player: PlayerState) {
+  if (player.captureHistory.length > 0) {
+    player.captureHistory.pop();
+  }
+  const lastGroup = player.captureHistory[player.captureHistory.length - 1] || [];
+  player.lastCaptureGroup = lastGroup;
+  player.lastCapture = lastGroup.length > 0 ? lastGroup[lastGroup.length - 1] : null;
 }
 
 // -- Send state to both players ---------------------------------
@@ -547,6 +563,7 @@ io.on('connection', (socket) => {
       // Koutchina logic
       const selected = data.selectedTiles || [];
       const bonbona = data.bonbonaTiles || [];
+      let bonbonaGroup = bonbona;
 
       let event: any = null;
 
@@ -556,9 +573,9 @@ io.on('connection', (socket) => {
           event = { type: 'drop', tile: active };
         } else {
           const swept = [...room.table];
-          curr.winPile.push(...swept, active);
-          curr.lastCaptureGroup = [...swept, active];
-          curr.lastCapture = active;
+          const captureGroup = [...swept, active];
+          curr.winPile.push(...captureGroup);
+          pushCapture(curr, captureGroup);
           room.table = [];
           event = { type: 'joker', tilesSwept: swept };
         }
@@ -583,26 +600,36 @@ io.on('connection', (socket) => {
             socket.emit('game:invalid', { message: '????????? ??? ?????' });
             return;
           }
-          // Verify that bonbona tiles is exactly the last tile from opponent's win pile
+          // Verify that bonbona selection is from opponent's last capture group
           const lastTile = opp.winPile[opp.winPile.length - 1];
-          if (bonbona.length !== 1 || !tilesEqual(bonbona[0], lastTile)) {
-            socket.emit('game:invalid', { message: '????? ??? ???? ?? ???? ????? ???' });
+          const lastGroup = opp.lastCaptureGroup || [];
+          if (lastGroup.length === 0 || !lastGroup.some(t => tilesEqual(t, lastTile))) {
+            socket.emit('game:invalid', { message: '????????? ??? ?????' });
             return;
           }
+          const validSelection = bonbona.every(bt => lastGroup.some(t => tilesEqual(t, bt)));
+          if (!validSelection) {
+            socket.emit('game:invalid', { message: '????? ?? ??? ???? ????? ???' });
+            return;
+          }
+          bonbonaGroup = lastGroup;
           // Bonbona counts as basra only if opponent's last win tile was a basra tile
           bonbonaIsBasra = opp.basraTiles.some(t => tilesEqual(t, lastTile));
+          if (bonbonaIsBasra) {
+            opp.basraCount = Math.max(0, opp.basraCount - 1);
+          }
 
           // Remove the last tile from opponent
-          opp.winPile = opp.winPile.filter(w => !tilesEqual(w, lastTile));
-          opp.basraTiles = opp.basraTiles.filter(w => !tilesEqual(w, lastTile));
+          opp.winPile = opp.winPile.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
+          opp.basraTiles = opp.basraTiles.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
+          popCapture(opp);
         }
 
         const basra = selected.length > 0 && isBasra(room.table, selected, active);
-        const captured = [...selected, ...bonbona, active];
+        const captured = [...selected, ...bonbonaGroup, active];
 
         curr.winPile.push(...captured);
-        curr.lastCaptureGroup = captured;
-        curr.lastCapture = active;
+        pushCapture(curr, captured);
         room.table = room.table.filter(t => !selected.some(s => tilesEqual(s, t)));
 
         if (basra || bonbonaIsBasra) {
@@ -665,8 +692,8 @@ io.on('connection', (socket) => {
     const room = findRoom(socket.id);
     if (!room || room.phase !== 'round_end') return;
     const [p0, p1] = room.players as [PlayerState, PlayerState];
-    p0.hand = []; p0.winPile = []; p0.basraCount = 0; p0.basraTiles = []; p0.score = 0; p0.lastCapture = null; p0.lastCaptureGroup = [];
-    p1.hand = []; p1.winPile = []; p1.basraCount = 0; p1.basraTiles = []; p1.score = 0; p1.lastCapture = null; p1.lastCaptureGroup = [];
+    p0.hand = []; p0.winPile = []; p0.basraCount = 0; p0.basraTiles = []; p0.score = 0; p0.lastCapture = null; p0.lastCaptureGroup = []; p0.captureHistory = [];
+    p1.hand = []; p1.winPile = []; p1.basraCount = 0; p1.basraTiles = []; p1.score = 0; p1.lastCapture = null; p1.lastCaptureGroup = []; p1.captureHistory = [];
     room.roundNumber++;
     startRound(room);
   });
@@ -705,6 +732,11 @@ app.get('/health', (_, res) => res.json({ status: 'ok', rooms: rooms.size }));
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+
+
+
+
 
 
 

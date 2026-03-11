@@ -140,12 +140,15 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
     const state = get();
     if (!state.isMyTurn || state.phase !== 'playing') return;
 
-    const already = state.selectedBonbonaTiles.find(t => tilesEqual(t, tile));
-    if (already) {
-      set({ selectedBonbonaTiles: state.selectedBonbonaTiles.filter(t => !tilesEqual(t, tile)) });
-    } else {
-      set({ selectedBonbonaTiles: [...state.selectedBonbonaTiles, tile] });
-    }
+    const lastGroup = state.opponent.lastCaptureGroup || [];
+    const inGroup = lastGroup.some(t => tilesEqual(t, tile));
+    if (!inGroup) return;
+
+    const allSelected =
+      state.selectedBonbonaTiles.length === lastGroup.length &&
+      state.selectedBonbonaTiles.every(t => lastGroup.some(l => tilesEqual(l, t)));
+
+    set({ selectedBonbonaTiles: allSelected ? [] : [...lastGroup] });
   },
 
   clearEvent: () => set({ lastEvent: null }),
