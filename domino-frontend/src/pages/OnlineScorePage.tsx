@@ -1,7 +1,9 @@
-import { useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+﻿import { useEffect, useRef, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useOnlineGameStore } from '@/store/onlineGameStore';
+import { clearScoreSnapshot, loadScoreSnapshot, saveScoreSnapshot } from '@/utils/scoreSnapshot';
+import type { OnlineLastRoundSummary } from '@/store/onlineGameStore';
 import { useOnlineStore } from '@/store/onlineStore';
 import { useSocket } from '@/hooks/useSocket';
 import { Trophy, Home, RotateCcw } from 'lucide-react';
@@ -12,28 +14,52 @@ import {
 } from '@/utils/soundEffects';
 import PageShell from '@/components/PageShell';
 
+type KoutchinaSnapshot = Extract<OnlineLastRoundSummary, { variant: 'koutchina' }>;
+type ClassicSnapshot = Extract<OnlineLastRoundSummary, { variant: 'classic' }>;
+
+interface NavState {
+  lastRoundSummary?: OnlineLastRoundSummary;
+}
+
+const ONLINE_SNAPSHOT_KEY = 'scoreSnapshot:online';
+
 export default function OnlineScorePage() {
-  const snapshot = useOnlineGameStore(s => s.lastRoundSummary);
+  const location = useLocation();
+  const storeSnapshot = useOnlineGameStore(s => s.lastRoundSummary);
+  const navSnapshot = (location.state as NavState | null)?.lastRoundSummary ?? null;
+  const sessionSnapshot = useMemo(() => loadScoreSnapshot<OnlineLastRoundSummary>(ONLINE_SNAPSHOT_KEY), []);
+  const snapshot = navSnapshot ?? storeSnapshot ?? sessionSnapshot;
   const storeVariant = useOnlineStore(s => s.gameVariant);
   const stateVariant = useOnlineGameStore(s => s.variant);
   const resolvedVariant = snapshot?.variant ?? (storeVariant === 'classic' || stateVariant === 'classic' ? 'classic' : 'koutchina');
 
+  useEffect(() => {
+    if (snapshot) {
+      saveScoreSnapshot(ONLINE_SNAPSHOT_KEY, snapshot);
+    }
+  }, [snapshot]);
+
   if (resolvedVariant === 'classic') {
-    return <OnlineClassicScorePage />;
+    return <OnlineClassicScorePage navSnapshot={snapshot?.variant === 'classic' ? snapshot : null} />;
   }
-  return <OnlineKoutchinaScorePage />;
+  return <OnlineKoutchinaScorePage navSnapshot={snapshot?.variant === 'koutchina' ? snapshot : null} />;
 }
 
-function OnlineKoutchinaScorePage() {
+function OnlineKoutchinaScorePage({ navSnapshot }: { navSnapshot: KoutchinaSnapshot | null }) {
   const navigate = useNavigate();
   const phase = useOnlineGameStore(s => s.phase);
   const me = useOnlineGameStore(s => s.me);
   const opponent = useOnlineGameStore(s => s.opponent);
   const targetScore = useOnlineGameStore(s => s.targetScore) || 600;
   const resetOnlineGame = useOnlineGameStore(s => s.resetOnlineGame);
-  const snapshot = useOnlineGameStore(s => s.lastRoundSummary);
-  const koutchinaSnapshot = snapshot?.variant === 'koutchina' ? snapshot : null;
+  const storeSummary = useOnlineGameStore(s => s.lastRoundSummary);
+  const koutchinaSnapshot = navSnapshot ?? (storeSummary?.variant === 'koutchina' ? storeSummary : null);
   const { leaveRoom, sendNextRound } = useSocket();
+
+  const handleNextRound = () => {
+    clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
+    sendNextRound();
+  };
 
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
   const scoreReady = isValidPhase || !!koutchinaSnapshot;
@@ -69,12 +95,6 @@ function OnlineKoutchinaScorePage() {
   []);
 
   useEffect(() => {
-    if (!scoreReady) {
-      navigate('/home', { replace: true });
-    }
-  }, [scoreReady, navigate]);
-
-  useEffect(() => {
     if (played.current || !scoreReady) return;
     played.current = true;
     const t = setTimeout(() => {
@@ -103,19 +123,30 @@ function OnlineKoutchinaScorePage() {
     }
   }, [phase, koutchinaSnapshot, navigate]);
 
-  if (!scoreReady) {
-    return (
-      <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
-        <p className="text-muted-foreground font-arabic animate-pulse">جاري التحميل...</p>
-      </PageShell>
-    );
-  }
 
   const handleGoHome = () => {
+    clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
     leaveRoom();
     resetOnlineGame();
     navigate('/home');
   };
+
+  if (!scoreReady) {
+    return (
+      <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <p className="text-muted-foreground font-arabic">لا يوجد ملخص للجولة</p>
+          <button
+            onClick={handleGoHome}
+            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-arabic font-bold"
+          >
+            العودة للرئيسية
+          </button>
+        </div>
+      </PageShell>
+    );
+  }
+
 
   return (
     <PageShell
@@ -285,7 +316,7 @@ function OnlineKoutchinaScorePage() {
         >
           {!isGameOver && (
             <motion.button
-              onClick={() => sendNextRound()}
+              onClick={handleNextRound}
               className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-primary text-primary-foreground rounded-xl font-arabic font-bold hover:bg-primary/90"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -309,15 +340,15 @@ function OnlineKoutchinaScorePage() {
   );
 }
 
-function OnlineClassicScorePage() {
+function OnlineClassicScorePage({ navSnapshot }: { navSnapshot: ClassicSnapshot | null }) {
   const navigate = useNavigate();
   const phase = useOnlineGameStore(s => s.phase);
   const players = useOnlineGameStore(s => s.classicPlayers);
   const targetScore = useOnlineGameStore(s => s.targetScore) || 100;
   const myId = useOnlineGameStore(s => s.myPlayerId);
   const resetOnlineGame = useOnlineGameStore(s => s.resetOnlineGame);
-  const snapshot = useOnlineGameStore(s => s.lastRoundSummary);
-  const classicSnapshot = snapshot?.variant === 'classic' ? snapshot : null;
+  const storeSummary = useOnlineGameStore(s => s.lastRoundSummary);
+  const classicSnapshot = navSnapshot ?? (storeSummary?.variant === 'classic' ? storeSummary : null);
   const { leaveRoom, sendNextRound } = useSocket();
 
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
@@ -349,13 +380,6 @@ function OnlineClassicScorePage() {
   []);
 
   useEffect(() => {
-    if (!scoreReady) {
-      navigate('/home', { replace: true });
-      return;
-    }
-  }, [scoreReady, navigate]);
-
-  useEffect(() => {
     if (played.current || !scoreReady) return;
     played.current = true;
     const t = setTimeout(() => {
@@ -384,10 +408,25 @@ function OnlineClassicScorePage() {
     }
   }, [phase, classicSnapshot, navigate]);
 
+  const handleGoHome = () => {
+    clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
+    leaveRoom();
+    resetOnlineGame();
+    navigate('/home');
+  };
+
   if (!scoreReady) {
     return (
       <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
-        <p className="text-muted-foreground font-arabic animate-pulse">جاري التحميل...</p>
+        <div className="flex flex-col items-center gap-3 text-center">
+          <p className="text-muted-foreground font-arabic">لا يوجد ملخص للجولة</p>
+          <button
+            onClick={handleGoHome}
+            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-arabic font-bold"
+          >
+            العودة للرئيسية
+          </button>
+        </div>
       </PageShell>
     );
   }
@@ -395,19 +434,22 @@ function OnlineClassicScorePage() {
   if (!hasPlayers) {
     return (
       <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
-        <p className="text-muted-foreground font-arabic">بيانات الجولة غير متاحة</p>
+        <div className="flex flex-col items-center gap-3 text-center">
+          <p className="text-muted-foreground font-arabic">لا يوجد ملخص للجولة</p>
+          <button
+            onClick={handleGoHome}
+            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-arabic font-bold"
+          >
+            العودة للرئيسية
+          </button>
+        </div>
       </PageShell>
     );
   }
 
   const handleNextRound = () => {
+    clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
     sendNextRound();
-  };
-
-  const handleGoHome = () => {
-    leaveRoom();
-    resetOnlineGame();
-    navigate('/home');
   };
 
   return (

@@ -148,12 +148,12 @@ export function validateBonbonaRequest(
     return { ok: false, message: 'الخصم لسه ما كسبش حاجة' };
   }
   if (isJokerTile(activeTile)) {
-    return { ok: false, message: 'الجوكر ما فيهش بونبونة' };
+    return { ok: false, message: 'الجوكر ما فيهوش بونبونة' };
   }
 
   const lastTile = opponent.winPile[opponent.winPile.length - 1];
   if (isJokerTile(lastTile)) {
-    return { ok: false, message: 'الجوكر ما فيهش بونبونة' };
+    return { ok: false, message: 'الجوكر ما فيهوش بونبونة' };
   }
 
   const lastGroup = opponent.lastCaptureGroup || [];

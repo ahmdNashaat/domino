@@ -1,8 +1,10 @@
-import { useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+﻿import { useEffect, useRef, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { Trophy, Home, RotateCcw } from 'lucide-react';
+import type { Player } from '@/types/contracts';
+import { clearScoreSnapshot, loadScoreSnapshot, saveScoreSnapshot } from '@/utils/scoreSnapshot';
 import {
   playWinMusic, playLoseMusic, playDrawMusic,
   playRoundWinJingle, playRoundLoseJingle,
@@ -10,15 +12,31 @@ import {
 } from '@/utils/soundEffects';
 import PageShell from '@/components/PageShell';
 
+interface LastRoundSummary {
+  phase: 'round_end' | 'game_over';
+  player: Player;
+  opponent: Player;
+  targetScore: number;
+  roundNumber: number;
+}
+
+interface NavState {
+  lastRoundSummary?: LastRoundSummary;
+}
+
 export default function ScorePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const phase = useGameStore(s => s.phase);
-  const lastRound = useGameStore(s => s.lastRoundSummary);
+  const storeSummary = useGameStore(s => s.lastRoundSummary);
   const player = useGameStore(s => s.player);
   const opponent = useGameStore(s => s.opponent);
   const targetScore = useGameStore(s => s.targetScore) || 600;
   const nextRound = useGameStore(s => s.nextRound);
   const resetGame = useGameStore(s => s.resetGame);
+  const navSummary = (location.state as NavState | null)?.lastRoundSummary ?? null;
+  const sessionSummary = useMemo(() => loadScoreSnapshot<LastRoundSummary>('scoreSnapshot:koutchina'), []);
+  const lastRound = navSummary ?? storeSummary ?? sessionSummary;
 
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
   const scoreReady = isValidPhase || !!lastRound;
@@ -55,10 +73,10 @@ export default function ScorePage() {
   []);
 
   useEffect(() => {
-    if (!scoreReady) {
-      navigate('/home', { replace: true });
+    if (lastRound) {
+      saveScoreSnapshot('scoreSnapshot:koutchina', lastRound);
     }
-  }, [scoreReady, navigate]);
+  }, [lastRound]);
 
   useEffect(() => {
     if (played.current || !scoreReady) return;
@@ -85,18 +103,28 @@ export default function ScorePage() {
 
   if (!scoreReady) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center" dir="rtl">
-        <p className="text-muted-foreground font-arabic animate-pulse">جاري التحميل...</p>
-      </div>
+      <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <p className="text-muted-foreground font-arabic">لا يوجد ملخص للجولة</p>
+          <button
+            onClick={() => { clearScoreSnapshot('scoreSnapshot:koutchina'); resetGame(); navigate('/home'); }}
+            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-arabic font-bold"
+          >
+            العودة للرئيسية
+          </button>
+        </div>
+      </PageShell>
     );
   }
 
   const handleNextRound = () => {
+    clearScoreSnapshot('scoreSnapshot:koutchina');
     nextRound();
     navigate('/game');
   };
 
   const handleGoHome = () => {
+    clearScoreSnapshot('scoreSnapshot:koutchina');
     resetGame();
     navigate('/home');
   };

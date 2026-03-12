@@ -50,7 +50,7 @@ function AnimatedRoutes() {
   );
 
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode="sync" initial={false}>
       {element ? cloneElement(element, { key: location.pathname }) : null}
     </AnimatePresence>
   );

@@ -1,8 +1,10 @@
-import { useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+﻿import { useEffect, useRef, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useClassicGameStore } from '@/store/classicGameStore';
 import { Home, RotateCcw } from 'lucide-react';
+import type { ClassicPlayer } from '@/types/contracts';
+import { clearScoreSnapshot, loadScoreSnapshot, saveScoreSnapshot } from '@/utils/scoreSnapshot';
 import {
   playWinMusic, playLoseMusic, playDrawMusic,
   playRoundWinJingle, playRoundLoseJingle,
@@ -10,14 +12,29 @@ import {
 } from '@/utils/soundEffects';
 import PageShell from '@/components/PageShell';
 
+interface LastRoundSummary {
+  phase: 'round_end' | 'game_over';
+  players: ClassicPlayer[];
+  targetScore: number;
+  roundNumber: number;
+}
+
+interface NavState {
+  lastRoundSummary?: LastRoundSummary;
+}
+
 export default function ClassicScorePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const phase = useClassicGameStore(s => s.phase);
-  const lastRound = useClassicGameStore(s => s.lastRoundSummary);
+  const storeSummary = useClassicGameStore(s => s.lastRoundSummary);
   const players = useClassicGameStore(s => s.players);
   const targetScore = useClassicGameStore(s => s.targetScore);
   const nextRound = useClassicGameStore(s => s.nextRound);
   const resetGame = useClassicGameStore(s => s.resetGame);
+  const navSummary = (location.state as NavState | null)?.lastRoundSummary ?? null;
+  const sessionSummary = useMemo(() => loadScoreSnapshot<LastRoundSummary>('scoreSnapshot:classic'), []);
+  const lastRound = navSummary ?? storeSummary ?? sessionSummary;
 
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
   const scoreReady = isValidPhase || !!lastRound;
@@ -47,11 +64,10 @@ export default function ClassicScorePage() {
   []);
 
   useEffect(() => {
-    if (!scoreReady) {
-      navigate('/home', { replace: true });
-      return;
+    if (lastRound) {
+      saveScoreSnapshot('scoreSnapshot:classic', lastRound);
     }
-  }, [scoreReady, navigate]);
+  }, [lastRound]);
 
   useEffect(() => {
     if (played.current || !scoreReady) return;
@@ -76,30 +92,49 @@ export default function ClassicScorePage() {
     return () => { clearTimeout(t); clearTimeout(t2); };
   }, [scoreReady, isGameOver, isDraw, humanWon, humanPlayer]);
 
+  const handleGoHome = () => {
+    clearScoreSnapshot('scoreSnapshot:classic');
+    resetGame();
+    navigate('/home');
+  };
+
   if (!scoreReady) {
     return (
       <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
-        <p className="text-muted-foreground font-arabic animate-pulse">Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„...</p>
+        <div className="flex flex-col items-center gap-3 text-center">
+          <p className="text-muted-foreground font-arabic">لا يوجد ملخص للجولة</p>
+          <button
+            onClick={handleGoHome}
+            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-arabic font-bold"
+          >
+            العودة للرئيسية
+          </button>
+        </div>
       </PageShell>
     );
   }
   if (!hasPlayers) {
     return (
       <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
-        <p className="text-muted-foreground font-arabic">بيانات الجولة غير متاحة</p>
+        <div className="flex flex-col items-center gap-3 text-center">
+          <p className="text-muted-foreground font-arabic">لا يوجد ملخص للجولة</p>
+          <button
+            onClick={handleGoHome}
+            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-arabic font-bold"
+          >
+            العودة للرئيسية
+          </button>
+        </div>
       </PageShell>
     );
   }
 
   const handleNextRound = () => {
+    clearScoreSnapshot('scoreSnapshot:classic');
     nextRound();
     navigate('/classic-game');
   };
 
-  const handleGoHome = () => {
-    resetGame();
-    navigate('/home');
-  };
 
   return (
     <PageShell

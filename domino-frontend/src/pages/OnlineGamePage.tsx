@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useOnlineGameStore } from '@/store/onlineGameStore';
@@ -15,6 +15,7 @@ import { getTileHandValue, isJokerTile, isWaladTile } from '@/utils/gameEngine';
 import { canPlayTile, getPlayableEnds, hasPlayableTile } from '@/utils/classicGameEngine';
 import { playDropSound, playCaptureSound, playSelectSound } from '@/utils/soundEffects';
 import { ArrowLeft, ArrowRight, Layers, SkipForward, LogOut } from 'lucide-react';
+import { clearScoreSnapshot, saveScoreSnapshot } from '@/utils/scoreSnapshot';
 
 function DotPattern({ count }: { count: number }) {
   const positions: Record<number, [number, number][]> = {
@@ -40,16 +41,70 @@ export default function OnlineGamePage() {
   const navigate = useNavigate();
   const state = useOnlineGameStore();
   const { connected, gameVariant } = useOnlineStore();
+  const isClassic = gameVariant === 'classic' || state.variant === 'classic';
+  const redirectRef = useRef(false);
+  const idleRedirectRef = useRef(false);
+  const phaseTerminal = state.phase === 'round_end' || state.phase === 'game_over';
 
   useEffect(() => {
-    if (state.phase === 'idle' && !state.myPlayerId) navigate('/online');
+    if (state.phase === 'idle' && !state.myPlayerId) {
+      if (!idleRedirectRef.current) {
+        idleRedirectRef.current = true;
+        navigate('/online', { replace: true });
+      }
+      return;
+    }
+    idleRedirectRef.current = false;
   }, [state.phase, state.myPlayerId, navigate]);
 
   useEffect(() => {
-    if (state.phase === 'round_end' || state.phase === 'game_over') navigate('/online/score');
-  }, [state.phase, navigate]);
+    if (!phaseTerminal) {
+      redirectRef.current = false;
+      return;
+    }
+    if (redirectRef.current) return;
+    redirectRef.current = true;
 
-  const isClassic = gameVariant === 'classic' || state.variant === 'classic';
+    const snapshot = isClassic
+      ? {
+        variant: 'classic' as const,
+        phase: state.phase === 'game_over' ? 'game_over' : 'round_end',
+        classicPlayers: state.classicPlayers,
+        myPlayerId: state.myPlayerId,
+        targetScore: state.targetScore,
+        roundNumber: state.roundNumber,
+      }
+      : {
+        variant: 'koutchina' as const,
+        phase: state.phase === 'game_over' ? 'game_over' : 'round_end',
+        me: state.me,
+        opponent: state.opponent,
+        targetScore: state.targetScore,
+        roundNumber: state.roundNumber,
+      };
+
+    saveScoreSnapshot('scoreSnapshot:online', snapshot);
+    navigate('/online/score', { state: { lastRoundSummary: snapshot } });
+  }, [
+    phaseTerminal,
+    isClassic,
+    state.phase,
+    state.classicPlayers,
+    state.myPlayerId,
+    state.targetScore,
+    state.roundNumber,
+    state.me,
+    state.opponent,
+    navigate,
+  ]);
+
+  if (phaseTerminal || (state.phase === 'idle' && !state.myPlayerId)) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center" dir="rtl">
+        <p className="text-muted-foreground font-arabic">جاري عرض نتيجة الجولة...</p>
+      </div>
+    );
+  }
 
   if (isClassic) {
     return <OnlineClassicGame connected={connected} />;
@@ -113,6 +168,7 @@ function OnlineKoutchinaGame({ connected }: { connected: boolean }) {
   }, [canAct, state.selectedTableTiles, state.selectedBonbonaTiles, sendAction]);
 
   const handleExit = useCallback(() => {
+    clearScoreSnapshot('scoreSnapshot:online');
     leaveRoom();
     state.resetOnlineGame();
     navigate('/home');
@@ -302,6 +358,7 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
   };
 
   const handleExit = () => {
+    clearScoreSnapshot('scoreSnapshot:online');
     leaveRoom();
     state.resetOnlineGame();
     navigate('/home');
@@ -559,3 +616,7 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
     </div>
   );
 }
+
+
+
+

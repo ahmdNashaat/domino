@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion'; // force rebuild
+﻿import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGameStore } from '@/store/gameStore';
 import PlayerHand from '@/components/game/PlayerHand';
@@ -9,21 +8,55 @@ import GameEffects from '@/components/game/GameEffects';
 import GameTopBar from '@/components/game/GameTopBar';
 import { getTileHandValue, isJokerTile, isWaladTile } from '@/utils/gameEngine';
 import { playDropSound, playCaptureSound, playSelectSound } from '@/utils/soundEffects';
+import { clearScoreSnapshot, saveScoreSnapshot } from '@/utils/scoreSnapshot';
 
 export default function GamePage() {
   const navigate = useNavigate();
   const state = useGameStore();
   const [invalidPulse, setInvalidPulse] = useState(false);
+  const redirectRef = useRef(false);
+  const idleRedirectRef = useRef(false);
+
+  const phaseTerminal = state.phase === 'round_end' || state.phase === 'game_over';
 
   useEffect(() => {
-    if (state.phase === 'idle') navigate('/home');
-  }, [state.phase, navigate]);
-
-  useEffect(() => {
-    if (state.phase === 'round_end' || state.phase === 'game_over') {
-      navigate('/score');
+    if (state.phase === 'idle') {
+      if (!idleRedirectRef.current) {
+        idleRedirectRef.current = true;
+        navigate('/home', { replace: true });
+      }
+      return;
     }
+    idleRedirectRef.current = false;
   }, [state.phase, navigate]);
+
+  useEffect(() => {
+    if (!phaseTerminal) {
+      redirectRef.current = false;
+      return;
+    }
+    if (redirectRef.current) return;
+    redirectRef.current = true;
+
+    const snapshot = {
+      phase: state.phase === 'game_over' ? 'game_over' : 'round_end',
+      player: state.player,
+      opponent: state.opponent,
+      targetScore: state.targetScore,
+      roundNumber: state.roundNumber,
+    };
+
+    saveScoreSnapshot('scoreSnapshot:koutchina', snapshot);
+    navigate('/score', { state: { lastRoundSummary: snapshot } });
+  }, [
+    phaseTerminal,
+    state.phase,
+    state.player,
+    state.opponent,
+    state.targetScore,
+    state.roundNumber,
+    navigate,
+  ]);
 
   useEffect(() => {
     if (state.lastEvent?.type === 'invalid') {
@@ -40,8 +73,12 @@ export default function GamePage() {
     }
   }, [state.lastEvent]);
 
-  if (state.phase === 'round_end' || state.phase === 'game_over' || state.phase === 'idle') {
-    return <motion.div exit={{ opacity: 0 }} transition={{ duration: 0.2 }} />;
+  if (phaseTerminal || state.phase === 'idle') {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center" dir="rtl">
+        <p className="text-muted-foreground font-arabic">جاري عرض نتيجة الجولة...</p>
+      </div>
+    );
   }
 
   const isFriend = state.gameMode === 'friend';
@@ -104,7 +141,7 @@ export default function GamePage() {
         roundNumber={state.roundNumber}
         statusText={statusText}
         statusPulse={statusPulse}
-        onExit={() => { state.resetGame(); navigate('/home'); }}
+        onExit={() => { clearScoreSnapshot('scoreSnapshot:koutchina'); state.resetGame(); navigate('/home'); }}
       />
 
       {/* Main game area */}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useClassicGameStore } from '@/store/classicGameStore';
@@ -8,23 +8,17 @@ import { ChainEnd } from '@/types/contracts';
 import { ArrowLeft, ArrowRight, Layers, SkipForward, LogOut } from 'lucide-react';
 import { playDropSound, playCaptureSound, playSelectSound } from '@/utils/soundEffects';
 import DominoTile from '@/components/game/DominoTile';
+import { clearScoreSnapshot, saveScoreSnapshot } from '@/utils/scoreSnapshot';
 
 
 export default function ClassicGamePage() {
   const navigate = useNavigate();
   const state = useClassicGameStore();
   const [showEndChoice, setShowEndChoice] = useState(false);
-  
+  const redirectRef = useRef(false);
+  const idleRedirectRef = useRef(false);
 
-  useEffect(() => {
-    if (state.phase === 'idle') navigate('/home');
-  }, [state.phase, navigate]);
-
-  useEffect(() => {
-    if (state.phase === 'round_end' || state.phase === 'game_over') {
-      navigate('/classic-score');
-    }
-  }, [state.phase, navigate]);
+  const phaseTerminal = state.phase === 'round_end' || state.phase === 'game_over';
 
   useEffect(() => {
     if (state.lastEvent?.type === 'invalid') {
@@ -40,6 +34,36 @@ export default function ClassicGamePage() {
     }
   }, [state.lastEvent]);
 
+  useEffect(() => {
+    if (state.phase === 'idle') {
+      if (!idleRedirectRef.current) {
+        idleRedirectRef.current = true;
+        navigate('/home', { replace: true });
+      }
+      return;
+    }
+    idleRedirectRef.current = false;
+  }, [state.phase, navigate]);
+
+  useEffect(() => {
+    if (!phaseTerminal) {
+      redirectRef.current = false;
+      return;
+    }
+    if (redirectRef.current) return;
+    redirectRef.current = true;
+
+    const snapshot = {
+      phase: state.phase === 'game_over' ? 'game_over' : 'round_end',
+      players: state.players,
+      targetScore: state.targetScore,
+      roundNumber: state.roundNumber,
+    };
+
+    saveScoreSnapshot('scoreSnapshot:classic', snapshot);
+    navigate('/classic-score', { state: { lastRoundSummary: snapshot } });
+  }, [phaseTerminal, state.phase, state.players, state.targetScore, state.roundNumber, navigate]);
+
   const currentIdx = state.currentPlayerIndex;
   const currentPlayer = state.players[currentIdx];
   const humanIdx = 0; // Player 0 is always human
@@ -48,10 +72,13 @@ export default function ClassicGamePage() {
   const canAct = state.phase === 'playing' && (isFriend || isHumanTurn);
 
   const displayHand = isFriend ? currentPlayer.hand : state.players[humanIdx].hand;
-  
 
-  if (state.phase === 'round_end' || state.phase === 'game_over' || state.phase === 'idle') {
-    return null;
+  if (phaseTerminal || state.phase === 'idle') {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center" dir="rtl">
+        <p className="text-muted-foreground font-arabic">جاري عرض نتيجة الجولة...</p>
+      </div>
+    );
   }
   const displayChainEnds = state.chainEnds;
 
@@ -126,7 +153,7 @@ export default function ClassicGamePage() {
               exit={{ scale: 0.5 }}
             >
               <p className="text-lg font-arabic font-bold text-primary">
-                🔒 اللعبة مقفلة!
+                🔒 اللعبة مقفولة!
               </p>
             </motion.div>
           </motion.div>
@@ -150,7 +177,7 @@ export default function ClassicGamePage() {
       {/* Top Bar - all player scores */}
       <div className="flex items-center justify-between px-3 pt-3 pb-1">
         <button
-          onClick={() => { state.resetGame(); navigate('/home'); }}
+          onClick={() => { clearScoreSnapshot('scoreSnapshot:classic'); state.resetGame(); navigate('/home'); }}
           className="w-11 h-11 rounded-full bg-secondary/80 border border-border flex items-center justify-center text-muted-foreground min-w-[44px] min-h-[44px]"
         >
           <LogOut className="w-4 h-4" />
