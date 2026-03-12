@@ -292,7 +292,7 @@ export default function ClassicGamePage() {
                 >
                   <motion.button
                     className="flex flex-col items-center gap-2 px-6 py-4 bg-card border border-primary/30 rounded-2xl hover:border-primary transition-colors"
-                    onClick={() => handlePlayEnd('left')}
+                    onClick={() => handlePlayEnd('right')}
                     whileTap={{ scale: 0.95 }}
                   >
                     <ArrowRight className="w-6 h-6 text-primary" />
@@ -300,7 +300,7 @@ export default function ClassicGamePage() {
                   </motion.button>
                   <motion.button
                     className="flex flex-col items-center gap-2 px-6 py-4 bg-card border border-primary/30 rounded-2xl hover:border-primary transition-colors"
-                    onClick={() => handlePlayEnd('right')}
+                    onClick={() => handlePlayEnd('left')}
                     whileTap={{ scale: 0.95 }}
                   >
                     <ArrowLeft className="w-6 h-6 text-primary" />

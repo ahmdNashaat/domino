@@ -51,6 +51,7 @@ function OnlineKoutchinaScorePage({ navSnapshot }: { navSnapshot: KoutchinaSnaps
   const me = useOnlineGameStore(s => s.me);
   const opponent = useOnlineGameStore(s => s.opponent);
   const targetScore = useOnlineGameStore(s => s.targetScore) || 600;
+  const roundNumber = useOnlineGameStore(s => s.roundNumber);
   const resetOnlineGame = useOnlineGameStore(s => s.resetOnlineGame);
   const storeSummary = useOnlineGameStore(s => s.lastRoundSummary);
   const koutchinaSnapshot = navSnapshot ?? (storeSummary?.variant === 'koutchina' ? storeSummary : null);
@@ -118,10 +119,13 @@ function OnlineKoutchinaScorePage({ navSnapshot }: { navSnapshot: KoutchinaSnaps
   }, [scoreReady, isGameOver, isDraw, playerWon, pScore, oScore]);
 
   useEffect(() => {
-    if (phase === 'playing' && !koutchinaSnapshot) {
-      navigate('/online/game');
+    if (phase === 'playing') {
+      const snapshotRound = koutchinaSnapshot?.roundNumber ?? 0;
+      if (!koutchinaSnapshot || roundNumber > snapshotRound) {
+        navigate('/online/game');
+      }
     }
-  }, [phase, koutchinaSnapshot, navigate]);
+  }, [phase, roundNumber, koutchinaSnapshot, navigate]);
 
 
   const handleGoHome = () => {
@@ -346,6 +350,7 @@ function OnlineClassicScorePage({ navSnapshot }: { navSnapshot: ClassicSnapshot 
   const players = useOnlineGameStore(s => s.classicPlayers);
   const targetScore = useOnlineGameStore(s => s.targetScore) || 100;
   const myId = useOnlineGameStore(s => s.myPlayerId);
+  const roundNumber = useOnlineGameStore(s => s.roundNumber);
   const resetOnlineGame = useOnlineGameStore(s => s.resetOnlineGame);
   const storeSummary = useOnlineGameStore(s => s.lastRoundSummary);
   const classicSnapshot = navSnapshot ?? (storeSummary?.variant === 'classic' ? storeSummary : null);
@@ -403,10 +408,13 @@ function OnlineClassicScorePage({ navSnapshot }: { navSnapshot: ClassicSnapshot 
   }, [scoreReady, isGameOver, isDraw, humanWon, myPlayer]);
 
   useEffect(() => {
-    if (phase === 'playing' && !classicSnapshot) {
-      navigate('/online/game');
+    if (phase === 'playing') {
+      const snapshotRound = classicSnapshot?.roundNumber ?? 0;
+      if (!classicSnapshot || roundNumber > snapshotRound) {
+        navigate('/online/game');
+      }
     }
-  }, [phase, classicSnapshot, navigate]);
+  }, [phase, roundNumber, classicSnapshot, navigate]);
 
   const handleGoHome = () => {
     clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
