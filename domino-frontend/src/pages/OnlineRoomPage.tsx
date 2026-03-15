@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '@/hooks/useSocket';
 import { useOnlineStore } from '@/store/onlineStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import { ArrowRight, Copy, Check, Wifi, WifiOff, Globe, Plus, DoorOpen, ChevronDown, Settings2, Delete } from 'lucide-react';
+import { ArrowRight, Copy, Check, Wifi, WifiOff, Plus, DoorOpen, ChevronDown, Settings2, X, RotateCw } from 'lucide-react';
 import type { GameVariant } from '@/types/contracts';
 import PageShell from '@/components/PageShell';
 
@@ -24,9 +24,13 @@ export default function OnlineRoomPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [gameVariant, setGameVariant] = useState<GameVariant>('koutchina');
   const [playerCount, setPlayerCount] = useState(2);
+  const [timerEnabled, setTimerEnabled] = useState(false);
+  const [timerSeconds, setTimerSeconds] = useState(30);
+  const [showReconnectBanner, setShowReconnectBanner] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
-  const { createRoom, joinRoom, leaveRoom } = useSocket();
-  const { connected, roomCode, roomStatus, error, roomPlayers, maxPlayers } = useOnlineStore();
+  const { createRoom, joinRoom, leaveRoom, rejoinRoom } = useSocket();
+  const { connected, roomCode, roomStatus, error, roomPlayers, maxPlayers, lastRoomCode, lastPlayerId } = useOnlineStore();
 
   const scoreOptions = gameVariant === 'koutchina' ? [600, 1000] : [100, 150];
   const defaultScore = gameVariant === 'koutchina' ? 600 : 100;
@@ -44,7 +48,9 @@ export default function OnlineRoomPage() {
     const score = useCustom ? (parseInt(customScore) || defaultScore) : targetScore;
     useOnlineStore.getState().setPlayerName(name);
     const count = gameVariant === 'classic' ? playerCount : undefined;
-    createRoom(name, score, false, undefined, gameVariant, count);
+    const timerAllowed = !(gameVariant === 'classic' && playerCount > 2);
+    const finalTimerEnabled = timerAllowed ? timerEnabled : false;
+    createRoom(name, score, finalTimerEnabled, timerSeconds, gameVariant, count);
   };
 
   const handleJoin = () => {
@@ -82,6 +88,42 @@ export default function OnlineRoomPage() {
     } else {
       navigate('/home');
     }
+  };
+
+  useEffect(() => {
+    if (gameVariant === 'classic' && playerCount > 2 && timerEnabled) {
+      setTimerEnabled(false);
+    }
+  }, [gameVariant, playerCount, timerEnabled]);
+
+  const normalizedLastRoomCode = (lastRoomCode || '').trim().toUpperCase();
+  const hasReconnectInfo = /^[A-Z0-9]{6}$/.test(normalizedLastRoomCode) && !!lastPlayerId;
+
+  useEffect(() => {
+    if (bannerDismissed) return;
+    if (roomStatus === 'idle' && hasReconnectInfo) {
+      setShowReconnectBanner(true);
+    } else {
+      setShowReconnectBanner(false);
+    }
+  }, [bannerDismissed, roomStatus, hasReconnectInfo]);
+
+  useEffect(() => {
+    if (!showReconnectBanner) return;
+    const timer = setTimeout(() => setShowReconnectBanner(false), 5 * 60 * 1000);
+    return () => clearTimeout(timer);
+  }, [showReconnectBanner]);
+
+  const handleRejoinBanner = () => {
+    if (!hasReconnectInfo || !lastPlayerId) return;
+    const name = savedName.trim() || 'لاعب';
+    useOnlineStore.getState().setPlayerName(name);
+    rejoinRoom(normalizedLastRoomCode, name, lastPlayerId);
+  };
+
+  const handleDismissBanner = () => {
+    setShowReconnectBanner(false);
+    setBannerDismissed(true);
   };
 
   // ── Playing — redirect via useEffect ──────────────────────────────
@@ -264,6 +306,43 @@ export default function OnlineRoomPage() {
           )}
         </div>
 
+        <AnimatePresence>
+          {showReconnectBanner && hasReconnectInfo && (
+            <motion.div
+              key="reconnect-banner"
+              className="w-full bg-card/80 border border-primary/30 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 shadow-lg"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/30 flex items-center justify-center">
+                  <RotateCw className="w-4 h-4 text-primary" />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs font-arabic text-muted-foreground">مازال عندك غرفة مفتوحة</span>
+                  <span className="text-sm font-mono font-bold text-primary">{normalizedLastRoomCode}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <motion.button
+                  onClick={handleRejoinBanner}
+                  className="px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-arabic font-bold"
+                  whileTap={{ scale: 0.95 }}
+                >
+                  عودة للغرفة
+                </motion.button>
+                <button
+                  onClick={handleDismissBanner}
+                  className="w-8 h-8 rounded-full border border-border text-muted-foreground flex items-center justify-center hover:text-foreground"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Tab switcher */}
         <div className="grid grid-cols-2 gap-2 p-1 bg-secondary/60 rounded-2xl border border-border">
           <motion.button
@@ -411,6 +490,46 @@ export default function OnlineRoomPage() {
                           placeholder="ادخل الهدف..."
                           className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-foreground font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/40 transition-colors"
                         />
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-2 pb-2">
+                      <label className="text-sm font-arabic text-muted-foreground">تايمر الدور</label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setTimerEnabled(!timerEnabled)}
+                          disabled={gameVariant === 'classic' && playerCount > 2}
+                          className={`px-4 py-2 rounded-xl border text-sm font-arabic transition-all ${
+                            timerEnabled
+                              ? 'bg-primary/15 border-primary/50 text-primary'
+                              : 'bg-secondary border-border text-muted-foreground hover:border-primary/30'
+                          } ${gameVariant === 'classic' && playerCount > 2 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          {timerEnabled ? 'مفعل' : 'متوقف'}
+                        </button>
+                        {gameVariant === 'classic' && playerCount > 2 && (
+                          <span className="text-[11px] text-muted-foreground font-arabic">
+                            متاح فقط لمباراة ثنائية
+                          </span>
+                        )}
+                      </div>
+
+                      {timerEnabled && !(gameVariant === 'classic' && playerCount > 2) && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {[15, 30, 60].map(sec => (
+                            <button
+                              key={sec}
+                              onClick={() => setTimerSeconds(sec)}
+                              className={`py-2.5 rounded-xl font-mono font-bold text-base transition-all border ${
+                                timerSeconds === sec
+                                  ? 'bg-primary/15 border-primary/50 text-primary'
+                                  : 'bg-secondary border-border text-muted-foreground hover:border-primary/30'
+                              }`}
+                            >
+                              {sec}s
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </motion.div>

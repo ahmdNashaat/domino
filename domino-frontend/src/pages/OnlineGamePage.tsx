@@ -14,7 +14,7 @@ import ChatPanel from '@/components/game/ChatPanel';
 import { getTileHandValue, isJokerTile, isWaladTile } from '@/utils/gameEngine';
 import { canPlayTile, getPlayableEnds, hasPlayableTile } from '@/utils/classicGameEngine';
 import { playDropSound, playCaptureSound, playSelectSound } from '@/utils/soundEffects';
-import { ArrowLeft, ArrowRight, Layers, SkipForward, LogOut } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Layers, SkipForward, LogOut, WifiOff } from 'lucide-react';
 import { clearScoreSnapshot, saveScoreSnapshot } from '@/utils/scoreSnapshot';
 
 function DotPattern({ count }: { count: number }) {
@@ -34,6 +34,200 @@ function DotPattern({ count }: { count: number }) {
         <circle key={i} cx={p[0]} cy={p[1]} r={9} className="fill-[hsl(var(--tile-dot))]" />
       ))}
     </svg>
+  );
+}
+
+function TurnTimer({
+  deadline,
+  durationSeconds,
+  size = 42,
+}: {
+  deadline: number | null;
+  durationSeconds: number;
+  size?: number;
+}) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!deadline || durationSeconds <= 0) return;
+    const id = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(id);
+  }, [deadline, durationSeconds]);
+
+  if (!deadline || durationSeconds <= 0) return null;
+
+  const remainingMs = Math.max(0, deadline - now);
+  const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+  const progress = Math.max(0, Math.min(1, remainingMs / (durationSeconds * 1000)));
+  const stroke = Math.max(2.5, Math.round(size * 0.1));
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference * (1 - progress);
+  const ringColor = progress > 0.6
+    ? 'hsl(142 70% 45%)'
+    : progress > 0.3
+      ? 'hsl(45 90% 55%)'
+      : 'hsl(0 80% 55%)';
+
+  return (
+    <div className="relative" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="hsl(var(--border))"
+          strokeWidth={stroke}
+          fill="transparent"
+        />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={ringColor}
+          strokeWidth={stroke}
+          fill="transparent"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          animate={{ strokeDashoffset: dashOffset, stroke: ringColor }}
+          transition={{ duration: 0.2, ease: 'linear' }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-[11px] font-mono font-bold text-foreground">{remainingSeconds}</span>
+      </div>
+    </div>
+  );
+}
+
+function OpponentConnectionBanner({ offsetClass = 'top-16' }: { offsetClass?: string }) {
+  const opponentConnected = useOnlineStore(s => s.opponentConnected);
+  const botReplacingOpponent = useOnlineStore(s => s.botReplacingOpponent);
+  const [showReconnected, setShowReconnected] = useState(false);
+  const prevRef = useRef(opponentConnected);
+
+  useEffect(() => {
+    if (botReplacingOpponent) {
+      setShowReconnected(false);
+      prevRef.current = opponentConnected;
+      return;
+    }
+
+    if (prevRef.current && !opponentConnected) {
+      setShowReconnected(false);
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    if (!prevRef.current && opponentConnected) {
+      setShowReconnected(true);
+      timeoutId = setTimeout(() => setShowReconnected(false), 2000);
+    }
+
+    prevRef.current = opponentConnected;
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [opponentConnected, botReplacingOpponent]);
+
+  return (
+    <div className={`absolute left-1/2 -translate-x-1/2 z-40 ${offsetClass}`}>
+      <AnimatePresence>
+        {botReplacingOpponent && (
+          <motion.div
+            key="bot-active"
+            className="px-4 py-2 rounded-xl bg-primary/10 text-primary text-sm font-arabic shadow-lg border border-primary/30"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+          >
+            🤖 البوت يلعب مكان خصمك مؤقتاً
+          </motion.div>
+        )}
+        {!botReplacingOpponent && !opponentConnected && (
+          <motion.div
+            key="disconnected"
+            className="px-4 py-2 rounded-xl bg-destructive/90 text-destructive-foreground text-sm font-arabic shadow-lg"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+          >
+            خصمك انقطع — في انتظار عودته
+          </motion.div>
+        )}
+        {!botReplacingOpponent && opponentConnected && showReconnected && (
+          <motion.div
+            key="reconnected"
+            className="px-4 py-2 rounded-xl bg-accent/20 text-accent text-sm font-arabic shadow-lg"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+          >
+            خصمك عاد
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function ReconnectOverlay({
+  open,
+  roomCode,
+  onRejoin,
+  onLeave,
+}: {
+  open: boolean;
+  roomCode: string;
+  onRejoin: () => void;
+  onLeave: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <motion.div
+            className="w-full max-w-md mx-4 bg-card/90 border border-border rounded-3xl p-6 text-center shadow-2xl"
+            initial={{ scale: 0.9, y: 10, opacity: 0 }}
+            animate={{ scale: 1, y: 0, opacity: 1 }}
+            exit={{ scale: 0.9, y: 10, opacity: 0 }}
+          >
+            <div className="w-16 h-16 rounded-2xl bg-destructive/10 border border-destructive/30 flex items-center justify-center mx-auto mb-4">
+              <WifiOff className="w-8 h-8 text-destructive" />
+            </div>
+            <h2 className="text-2xl font-bold text-foreground font-arabic mb-2">انقطع الاتصال</h2>
+            <p className="text-sm text-muted-foreground font-arabic mb-4">
+              مازال صديقك يلعب — هل تريد العودة؟
+            </p>
+            <div className="flex items-center justify-center gap-2 mb-5">
+              <span className="text-xs text-muted-foreground font-arabic">رمز الغرفة</span>
+              <span className="text-sm font-mono font-bold text-primary">{roomCode}</span>
+            </div>
+            <div className="flex flex-col gap-3">
+              <motion.button
+                onClick={onRejoin}
+                className="w-full py-3.5 rounded-2xl gold-gradient text-primary-foreground font-arabic font-bold text-lg"
+                whileTap={{ scale: 0.97 }}
+              >
+                ادخل الغرفة مرة أخرى
+              </motion.button>
+              <motion.button
+                onClick={onLeave}
+                className="w-full py-3 rounded-2xl border border-border text-muted-foreground font-arabic"
+                whileTap={{ scale: 0.97 }}
+              >
+                مغادرة اللعبة
+              </motion.button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -116,7 +310,24 @@ export default function OnlineGamePage() {
 function OnlineKoutchinaGame({ connected }: { connected: boolean }) {
   const navigate = useNavigate();
   const state = useOnlineGameStore();
-  const { sendAction, sendDrop, leaveRoom } = useSocket();
+  const {
+    opponentConnected,
+    botReplacingOpponent,
+    roomStatus,
+    reconnectAvailable,
+    lastRoomCode,
+    lastPlayerId,
+    playerName,
+  } = useOnlineStore(s => ({
+    opponentConnected: s.opponentConnected,
+    botReplacingOpponent: s.botReplacingOpponent,
+    roomStatus: s.roomStatus,
+    reconnectAvailable: s.reconnectAvailable,
+    lastRoomCode: s.lastRoomCode,
+    lastPlayerId: s.lastPlayerId,
+    playerName: s.playerName,
+  }));
+  const { sendAction, sendDrop, leaveRoom, rejoinRoom } = useSocket();
   const [invalidPulse, setInvalidPulse] = useState(false);
 
   useEffect(() => {
@@ -139,6 +350,9 @@ function OnlineKoutchinaGame({ connected }: { connected: boolean }) {
   const isWalad = activeTile ? isWaladTile(activeTile) : false;
   const activeValue = activeTile ? getTileHandValue(activeTile) : 0;
   const canAct = state.isMyTurn && state.phase === 'playing';
+  const showTimer = state.timerEnabled && !!state.turnDeadline && state.phase === 'playing';
+  const showOpponentTimer = showTimer && !state.isMyTurn;
+  const showMyTimer = showTimer && state.isMyTurn;
 
   const handleActiveCardClick = useCallback(() => {
     if (!canAct || !activeTile) return;
@@ -174,10 +388,37 @@ function OnlineKoutchinaGame({ connected }: { connected: boolean }) {
     navigate('/home');
   }, [leaveRoom, navigate]);
 
+  const normalizedLastRoomCode = (lastRoomCode || '').trim().toUpperCase();
+  const hasReconnectInfo = /^[A-Z0-9]{6}$/.test(normalizedLastRoomCode) && !!lastPlayerId;
+  const showReconnectOverlay = (roomStatus === 'disconnected' || roomStatus === 'joining') && reconnectAvailable && hasReconnectInfo;
+
+  const handleRejoin = useCallback(() => {
+    if (!hasReconnectInfo || !lastPlayerId) return;
+    const name = playerName.trim() || 'لاعب';
+    useOnlineStore.getState().setPlayerName(name);
+    rejoinRoom(normalizedLastRoomCode, name, lastPlayerId);
+  }, [hasReconnectInfo, lastPlayerId, playerName, normalizedLastRoomCode, rejoinRoom]);
+
   const opponentFakeHand: [number, number][] = Array.from(
     { length: state.opponent.handCount },
     () => [0, 0] as [number, number]
   );
+
+  const opponentStatusBadge = (
+    <span className={`flex items-center gap-1 text-[10px] font-arabic px-1.5 py-0.5 rounded-full border ${
+      opponentConnected
+        ? 'bg-accent/10 border-accent/20 text-accent'
+        : 'bg-destructive/10 border-destructive/20 text-destructive'
+    }`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${opponentConnected ? 'bg-accent' : 'bg-destructive animate-pulse'}`} />
+      {opponentConnected ? 'متصل' : 'منقطع'}
+    </span>
+  );
+  const botBadge = botReplacingOpponent ? (
+    <span className="flex items-center gap-1 text-[10px] font-arabic px-1.5 py-0.5 rounded-full border bg-primary/10 border-primary/30 text-primary">
+      🤖 بوت
+    </span>
+  ) : null;
 
   let statusText: string | undefined;
   let statusPulse = false;
@@ -194,6 +435,13 @@ function OnlineKoutchinaGame({ connected }: { connected: boolean }) {
     <div className="min-h-screen bg-background flex flex-col overflow-hidden relative" dir="rtl">
       <GameEffects event={state.lastEvent as any} />
       <ChatPanel />
+      <OpponentConnectionBanner />
+      <ReconnectOverlay
+        open={showReconnectOverlay}
+        roomCode={normalizedLastRoomCode}
+        onRejoin={handleRejoin}
+        onLeave={handleExit}
+      />
 
       <GameTopBar
         player={{ name: state.me.name, score: state.me.cumulativeScore }}
@@ -221,12 +469,23 @@ function OnlineKoutchinaGame({ connected }: { connected: boolean }) {
             />
           </div>
           <div className="flex-shrink-0">
-            <PlayerHand
-              hand={opponentFakeHand}
-              activeIndex={-1}
-              isPlayer={false}
-              label={`${state.opponent.name} (${state.opponent.handCount})`}
-            />
+            <div className="flex items-center gap-2">
+              <PlayerHand
+                hand={opponentFakeHand}
+                activeIndex={-1}
+                isPlayer={false}
+                label={`${state.opponent.name} (${state.opponent.handCount})`}
+                nameBadge={(
+                  <div className="flex items-center gap-1">
+                    {opponentStatusBadge}
+                    {botBadge}
+                  </div>
+                )}
+              />
+              {showOpponentTimer && (
+                <TurnTimer deadline={state.turnDeadline} durationSeconds={state.timerSeconds} />
+              )}
+            </div>
           </div>
         </div>
 
@@ -261,13 +520,18 @@ function OnlineKoutchinaGame({ connected }: { connected: boolean }) {
             />
           </div>
           <div className="flex-shrink-0">
-            <PlayerHand
-              hand={state.me.hand}
-              activeIndex={state.isMyTurn ? state.activeCardIndex : -1}
-              isPlayer={true}
-              label={`${state.me.name} (${state.me.hand.length})`}
-              onActiveClick={state.isMyTurn ? handleActiveCardClick : undefined}
-            />
+            <div className="flex items-center gap-2">
+              <PlayerHand
+                hand={state.me.hand}
+                activeIndex={state.isMyTurn ? state.activeCardIndex : -1}
+                isPlayer={true}
+                label={`${state.me.name} (${state.me.hand.length})`}
+                onActiveClick={state.isMyTurn ? handleActiveCardClick : undefined}
+              />
+              {showMyTimer && (
+                <TurnTimer deadline={state.turnDeadline} durationSeconds={state.timerSeconds} />
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -278,7 +542,24 @@ function OnlineKoutchinaGame({ connected }: { connected: boolean }) {
 function OnlineClassicGame({ connected }: { connected: boolean }) {
   const navigate = useNavigate();
   const state = useOnlineGameStore();
-  const { sendAction, leaveRoom } = useSocket();
+  const {
+    opponentConnected,
+    botReplacingOpponent,
+    roomStatus,
+    reconnectAvailable,
+    lastRoomCode,
+    lastPlayerId,
+    playerName,
+  } = useOnlineStore(s => ({
+    opponentConnected: s.opponentConnected,
+    botReplacingOpponent: s.botReplacingOpponent,
+    roomStatus: s.roomStatus,
+    reconnectAvailable: s.reconnectAvailable,
+    lastRoomCode: s.lastRoomCode,
+    lastPlayerId: s.lastPlayerId,
+    playerName: s.playerName,
+  }));
+  const { sendAction, leaveRoom, rejoinRoom } = useSocket();
   const [showEndChoice, setShowEndChoice] = useState(false);
   const [pendingTileIndex, setPendingTileIndex] = useState<number | null>(null);
 
@@ -301,6 +582,7 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
   const myHand = state.myHandClassic;
   const canDraw = isMyTurn && state.boneyardCount > 0 && !hasPlayableTile(myHand, state.chainEnds);
   const canPass = isMyTurn && state.boneyardCount === 0 && !hasPlayableTile(myHand, state.chainEnds);
+  const showTimer = state.timerEnabled && !!state.turnDeadline && state.phase === 'playing' && state.classicPlayers.length === 2;
 
   const otherPlayers = state.classicPlayers.filter(p => p.id !== state.myPlayerId);
 
@@ -364,9 +646,27 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
     navigate('/home');
   };
 
+  const normalizedLastRoomCode = (lastRoomCode || '').trim().toUpperCase();
+  const hasReconnectInfo = /^[A-Z0-9]{6}$/.test(normalizedLastRoomCode) && !!lastPlayerId;
+  const showReconnectOverlay = (roomStatus === 'disconnected' || roomStatus === 'joining') && reconnectAvailable && hasReconnectInfo;
+
+  const handleRejoin = useCallback(() => {
+    if (!hasReconnectInfo || !lastPlayerId) return;
+    const name = playerName.trim() || 'لاعب';
+    useOnlineStore.getState().setPlayerName(name);
+    rejoinRoom(normalizedLastRoomCode, name, lastPlayerId);
+  }, [hasReconnectInfo, lastPlayerId, playerName, normalizedLastRoomCode, rejoinRoom]);
+
   return (
     <div className="min-h-screen bg-background flex flex-col overflow-hidden relative" dir="rtl">
       <ChatPanel />
+      <OpponentConnectionBanner />
+      <ReconnectOverlay
+        open={showReconnectOverlay}
+        roomCode={normalizedLastRoomCode}
+        onRejoin={handleRejoin}
+        onLeave={handleExit}
+      />
 
       {/* Event overlay */}
       <AnimatePresence>
@@ -427,7 +727,31 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
               transition={{ duration: 1.5, repeat: Infinity }}
             >
               <span className="font-bold truncate max-w-[70px]">{p.name}</span>
+              {state.classicPlayers.length === 2 && p.id !== state.myPlayerId && (
+                <span className="flex items-center gap-1">
+                  <span className={`flex items-center gap-1 text-[9px] font-arabic px-1.5 py-0.5 rounded-full border ${
+                    opponentConnected
+                      ? 'bg-accent/10 border-accent/20 text-accent'
+                      : 'bg-destructive/10 border-destructive/20 text-destructive'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${opponentConnected ? 'bg-accent' : 'bg-destructive animate-pulse'}`} />
+                    {opponentConnected ? 'متصل' : 'منقطع'}
+                  </span>
+                  {botReplacingOpponent && (
+                    <span className="flex items-center gap-1 text-[9px] font-arabic px-1.5 py-0.5 rounded-full border bg-primary/10 border-primary/30 text-primary">
+                      🤖 بوت
+                    </span>
+                  )}
+                </span>
+              )}
               <span className="font-mono font-bold">{p.cumulativeScore}</span>
+              {showTimer && p.id === state.currentPlayerId && (
+                <TurnTimer
+                  deadline={state.turnDeadline}
+                  durationSeconds={state.timerSeconds}
+                  size={28}
+                />
+              )}
             </motion.div>
           ))}
         </div>

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DominoTile as DominoTileType } from '@/types/contracts';
 import DominoTile from './DominoTile';
@@ -7,10 +8,11 @@ interface Props {
   activeIndex: number;
   isPlayer: boolean;
   label: string;
+  nameBadge?: ReactNode;
   onActiveClick?: () => void;
 }
 
-export default function PlayerHand({ hand, activeIndex, isPlayer, label, onActiveClick }: Props) {
+export default function PlayerHand({ hand, activeIndex, isPlayer, label, nameBadge, onActiveClick }: Props) {
   // Extract name and count from label like "البوت (11)"
   const match = label.match(/^(.+?)\s*\((\d+)\)$/);
   const name = match ? match[1] : label;
@@ -20,6 +22,7 @@ export default function PlayerHand({ hand, activeIndex, isPlayer, label, onActiv
     <div className="flex flex-col items-start gap-1">
       <div className="flex items-center gap-1.5 mr-1">
         <span className="text-sm font-arabic font-semibold text-foreground">{name}</span>
+        {nameBadge}
         <span className="flex items-center justify-center min-w-[20px] h-[20px] px-1 rounded-full bg-primary/20 text-primary text-[11px] font-mono font-bold leading-none">
           {count}
         </span>

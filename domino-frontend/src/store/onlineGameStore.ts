@@ -61,6 +61,9 @@ export interface OnlineGameState {
   selectedBonbonaTiles: DominoTile[];
   roundNumber: number;
   targetScore: number;
+  timerEnabled: boolean;
+  timerSeconds: number;
+  turnDeadline: number | null;
   lastEvent: GameEvent | ClassicGameEvent | null;
   myPlayerId: string; // 'player0' or 'player1'
   lastRoundSummary: OnlineLastRoundSummary | null;
@@ -90,6 +93,9 @@ export interface ServerGameState {
   activeCardIndex: number;
   roundNumber: number;
   targetScore: number;
+  timerEnabled?: boolean;
+  timerSeconds?: number;
+  turnDeadline?: number | null;
   lastEvent?: GameEvent | ClassicGameEvent | null;
   variant?: 'koutchina' | 'classic';
   players?: OnlineClassicPlayer[]; // classic summary
@@ -150,6 +156,9 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
   selectedBonbonaTiles: [],
   roundNumber: 1,
   targetScore: 600,
+  timerEnabled: false,
+  timerSeconds: 30,
+  turnDeadline: null,
   lastEvent: null,
   myPlayerId: '',
   lastRoundSummary: null,
@@ -199,6 +208,15 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
   applyServerState: (data) => {
     const state = get();
     const isMyTurn = data.currentPlayerId === state.myPlayerId;
+    const nextTimerEnabled = Object.prototype.hasOwnProperty.call(data, 'timerEnabled')
+      ? data.timerEnabled ?? false
+      : state.timerEnabled;
+    const nextTimerSeconds = Object.prototype.hasOwnProperty.call(data, 'timerSeconds')
+      ? data.timerSeconds ?? state.timerSeconds
+      : state.timerSeconds;
+    const nextTurnDeadline = Object.prototype.hasOwnProperty.call(data, 'turnDeadline')
+      ? (data.turnDeadline ?? null)
+      : state.turnDeadline;
 
     if (data.variant === 'classic') {
       const phaseTerminal = data.phase === 'round_end' || data.phase === 'game_over';
@@ -231,6 +249,9 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
         activeCardIndex: -1,
         roundNumber: data.roundNumber,
         targetScore: data.targetScore,
+        timerEnabled: nextTimerEnabled,
+        timerSeconds: nextTimerSeconds,
+        turnDeadline: nextTurnDeadline,
         lastEvent: data.lastEvent || null,
         selectedTileIndex: -1,
         selectedTableTiles: [],
@@ -298,6 +319,9 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
       activeCardIndex: data.activeCardIndex,
       roundNumber: data.roundNumber,
       targetScore: data.targetScore,
+      timerEnabled: nextTimerEnabled,
+      timerSeconds: nextTimerSeconds,
+      turnDeadline: nextTurnDeadline,
       lastEvent: data.lastEvent || null,
       selectedTileIndex: -1,
       selectedTableTiles: [],
@@ -329,6 +353,9 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
       selectedBonbonaTiles: [],
       roundNumber: 1,
       targetScore: 600,
+      timerEnabled: false,
+      timerSeconds: 30,
+      turnDeadline: null,
       lastEvent: null,
       myPlayerId: '',
       lastRoundSummary: null,

@@ -42,6 +42,7 @@ export function useSocket() {
       socket.removeAllListeners('room:created');
       socket.removeAllListeners('room:joined');
       socket.removeAllListeners('room:error');
+      socket.removeAllListeners('room:rejoined');
       socket.removeAllListeners('room:opponent_joined');
       socket.removeAllListeners('room:state');
       socket.removeAllListeners('game:started');
@@ -49,6 +50,8 @@ export function useSocket() {
       socket.removeAllListeners('game:event');
       socket.removeAllListeners('game:invalid');
       socket.removeAllListeners('game:opponent_disconnected');
+      socket.removeAllListeners('game:opponent_reconnected');
+      socket.removeAllListeners('game:bot_activated');
       socket.removeAllListeners('chat:message');
 
       socket.on('connect', () => {
@@ -56,7 +59,14 @@ export function useSocket() {
       });
 
       socket.on('disconnect', () => {
-        useOnlineStore.getState().setConnected(false);
+        const s = useOnlineStore.getState();
+        s.setConnected(false);
+        if (s.roomStatus === 'playing') {
+          s.setRoomStatus('disconnected');
+          const code = s.lastRoomCode?.trim() || '';
+          const validCode = code.length === 6;
+          s.setReconnectAvailable(validCode && !!s.lastPlayerId);
+        }
       });
 
       socket.on('room:created', (data: { roomCode: string; playerName: string; playerId: string }) => {
@@ -64,6 +74,11 @@ export function useSocket() {
         s.setRoomCode(data.roomCode);
         s.setRoomStatus('waiting');
         s.setIsHost(true);
+        s.setOpponentConnected(true);
+        s.setBotReplacingOpponent(false);
+        s.setReconnectAvailable(false);
+        s.setLastRoomCode(data.roomCode);
+        s.setLastPlayerId(data.playerId || null);
         if (data.playerId) {
           useOnlineGameStore.getState().setMyPlayerId(data.playerId);
         }
@@ -74,17 +89,37 @@ export function useSocket() {
         s.setRoomCode(data.roomCode);
         s.setOpponentName(data.opponentName);
         s.setRoomStatus('waiting');
+        s.setOpponentConnected(true);
+        s.setBotReplacingOpponent(false);
+        s.setReconnectAvailable(false);
+        s.setLastRoomCode(data.roomCode);
+        s.setLastPlayerId(data.playerId || null);
         if (data.playerId) {
           useOnlineGameStore.getState().setMyPlayerId(data.playerId);
         }
       });
 
       socket.on('room:error', (data: { message: string }) => {
-        useOnlineStore.getState().setError(data.message);
+        const s = useOnlineStore.getState();
+        s.setError(data.message);
+        if (s.reconnectAvailable || s.roomStatus === 'disconnected') {
+          const lower = (data.message || '').toLowerCase();
+          if (lower.includes('not found') || data.message.includes('لم يتم') || data.message.includes('لم تعد')) {
+            s.clearReconnectInfo();
+          } else {
+            s.setReconnectAvailable(false);
+          }
+        }
+        if (s.roomStatus === 'disconnected') {
+          s.setRoomStatus('idle');
+          useOnlineGameStore.getState().resetOnlineGame();
+        }
       });
 
       socket.on('room:opponent_joined', (data: { opponentName: string }) => {
         useOnlineStore.getState().setOpponentName(data.opponentName);
+        useOnlineStore.getState().setOpponentConnected(true);
+        useOnlineStore.getState().setBotReplacingOpponent(false);
       });
 
       socket.on('room:state', (data: { roomCode: string; players: { id: string; name: string }[]; maxPlayers: number; status: any; variant: any }) => {
@@ -99,6 +134,24 @@ export function useSocket() {
 
       socket.on('game:started', (data: { playerId: string }) => {
         useOnlineStore.getState().setRoomStatus('playing');
+        useOnlineStore.getState().setOpponentConnected(true);
+        useOnlineStore.getState().setBotReplacingOpponent(false);
+        useOnlineStore.getState().setReconnectAvailable(false);
+        if (data.playerId) {
+          useOnlineGameStore.getState().setMyPlayerId(data.playerId);
+          useOnlineStore.getState().setLastPlayerId(data.playerId);
+        }
+      });
+
+      socket.on('room:rejoined', (data: { roomCode: string; playerId: string }) => {
+        const s = useOnlineStore.getState();
+        s.setRoomCode(data.roomCode);
+        s.setRoomStatus('playing');
+        s.setOpponentConnected(true);
+        s.setBotReplacingOpponent(false);
+        s.setReconnectAvailable(false);
+        s.setLastRoomCode(data.roomCode);
+        s.setLastPlayerId(data.playerId || null);
         if (data.playerId) {
           useOnlineGameStore.getState().setMyPlayerId(data.playerId);
         }
@@ -119,8 +172,24 @@ export function useSocket() {
         useOnlineGameStore.getState().setEvent({ type: 'invalid', message: data.message });
       });
 
-      socket.on('game:opponent_disconnected', () => {
-        useOnlineStore.getState().setRoomStatus('disconnected');
+      socket.on('game:opponent_disconnected', (data?: { gracePeriodSeconds?: number }) => {
+        const s = useOnlineStore.getState();
+        s.setOpponentConnected(false);
+        s.setBotReplacingOpponent(false);
+        if (!data || typeof data.gracePeriodSeconds !== 'number') {
+          s.setRoomStatus('disconnected');
+        }
+      });
+
+      socket.on('game:opponent_reconnected', () => {
+        useOnlineStore.getState().setOpponentConnected(true);
+        useOnlineStore.getState().setBotReplacingOpponent(false);
+      });
+
+      socket.on('game:bot_activated', () => {
+        const s = useOnlineStore.getState();
+        s.setOpponentConnected(false);
+        s.setBotReplacingOpponent(true);
       });
 
       socket.on('chat:message', (data: { senderName: string; text: string }) => {
@@ -153,6 +222,11 @@ export function useSocket() {
     socket.emit('room:join', { roomCode, playerName });
   }, []);
 
+  const rejoinRoom = useCallback((roomCode: string, playerName: string, originalPlayerId: string) => {
+    useOnlineStore.getState().setRoomStatus('joining');
+    socket.emit('room:rejoin', { roomCode, playerName, originalPlayerId });
+  }, []);
+
   const sendAction = useCallback((data: { type?: string; end?: string; tileIndex?: number; selectedTiles?: [number, number][]; bonbonaTiles?: [number, number][]; bonbona?: boolean }) => {
     socket.emit('game:action', data);
   }, []);
@@ -176,6 +250,7 @@ export function useSocket() {
   const leaveRoom = useCallback(() => {
     socket.emit('room:leave');
     useOnlineStore.getState().resetRoom();
+    useOnlineStore.getState().clearReconnectInfo();
     useOnlineGameStore.getState().resetOnlineGame();
     useChatStore.getState().clearMessages();
   }, []);
@@ -184,5 +259,5 @@ export function useSocket() {
     socket.emit('game:next_round');
   }, []);
 
-  return { createRoom, joinRoom, sendAction, sendDrop, sendChat, leaveRoom, sendNextRound, socket };
+  return { createRoom, joinRoom, rejoinRoom, sendAction, sendDrop, sendChat, leaveRoom, sendNextRound, socket };
 }

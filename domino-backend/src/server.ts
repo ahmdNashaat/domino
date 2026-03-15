@@ -4,7 +4,11 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import {
   DominoTile,
+  checkBonbona,
+  getTileHandValue,
+  getTileTableValue,
   isJokerTile,
+  isBlank,
   tilesEqual,
   isBasra,
   validateCapture,
@@ -20,6 +24,8 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST'],
     credentials: true,
   },
+  pingTimeout: 10000,
+  pingInterval: 5000,
   transports: ['polling', 'websocket'],
   allowEIO3: true,
 });
@@ -54,10 +60,23 @@ interface Room {
   targetScore: number;
   timerEnabled: boolean;
   timerSeconds: number;
+  turnDeadline: number | null;
+  turnTimer: NodeJS.Timeout | null;
+  disconnectedPlayers: Map<string, DisconnectedPlayer>;
   roundNumber: number;
   phase: 'waiting' | 'playing' | 'round_end' | 'game_over' | 'blocked';
   activeCardIndex: number;
   variant: 'koutchina' | 'classic';
+}
+
+interface DisconnectedPlayer {
+  originalSocketId: string;
+  playerIndex: 0 | 1;
+  playerName: string;
+  disconnectedAt: number;
+  gracePeriodTimer: NodeJS.Timeout | null;
+  botActive: boolean;
+  rejoinWindowTimer: NodeJS.Timeout | null;
 }
 
 const rooms = new Map<string, Room>();
@@ -251,6 +270,9 @@ function sendGameState(room: Room, lastEvent?: any) {
   if (room.players.length < 2) return;
 
   const currentPlayer = room.players[room.currentPlayerIndex];
+  const timerEnabled = shouldUseTurnTimer(room);
+  const timerSeconds = room.timerSeconds;
+  const turnDeadline = room.turnDeadline;
 
   if (room.variant === 'classic') {
     const playersSummary = room.players.map(p => ({
@@ -273,6 +295,9 @@ function sendGameState(room: Room, lastEvent?: any) {
         activeCardIndex: -1,
         roundNumber: room.roundNumber,
         targetScore: room.targetScore,
+        timerEnabled,
+        timerSeconds,
+        turnDeadline,
         lastEvent: lastEvent || null,
         players: playersSummary,
         myHand: p.hand,
@@ -299,6 +324,9 @@ function sendGameState(room: Room, lastEvent?: any) {
     activeCardIndex: room.activeCardIndex,
     roundNumber: room.roundNumber,
     targetScore: room.targetScore,
+    timerEnabled,
+    timerSeconds,
+    turnDeadline,
     lastEvent: lastEvent || null,
     myHand: p0.hand,
     myWinPile: p0.winPile,
@@ -343,6 +371,436 @@ function sendGameState(room: Room, lastEvent?: any) {
     opponentLastCapture: p0.lastCapture,
     opponentLastCaptureGroup: p0.lastCaptureGroup,
   });
+}
+
+function shouldUseTurnTimer(room: Room): boolean {
+  if (!room.timerEnabled) return false;
+  if (room.variant === 'classic' && room.maxPlayers !== 2) return false;
+  return true;
+}
+
+function shouldUseBotReplacement(room: Room): boolean {
+  if (room.variant === 'classic' && room.maxPlayers !== 2) return false;
+  return room.players.length === 2;
+}
+
+function findDisconnectedByPlayerIndex(room: Room, playerIndex: 0 | 1) {
+  for (const [id, info] of room.disconnectedPlayers.entries()) {
+    if (info.playerIndex === playerIndex) {
+      return { socketId: id, info };
+    }
+  }
+}
+
+function isWaitingForReconnect(room: Room, playerIndex: 0 | 1): boolean {
+  if (!shouldUseBotReplacement(room)) return false;
+  const disconn = findDisconnectedByPlayerIndex(room, playerIndex);
+  return !!disconn && !disconn.info.botActive;
+}
+
+function clearTurnTimer(room: Room) {
+  if (room.turnTimer) {
+    clearTimeout(room.turnTimer);
+    room.turnTimer = null;
+  }
+  room.turnDeadline = null;
+}
+
+function handleTurnTimeout(room: Room) {
+  if (room.phase !== 'playing' || room.players.length < 2) return;
+  if (!shouldUseTurnTimer(room)) return;
+
+  if (room.variant === 'classic') {
+    autoPlayClassicTimeout(room);
+  } else {
+    autoPlayKoutchinaTimeout(room);
+  }
+}
+
+function resetTurnTimer(room: Room) {
+  if (!shouldUseTurnTimer(room)) {
+    clearTurnTimer(room);
+    return;
+  }
+
+  const currentIdx = room.currentPlayerIndex as 0 | 1;
+  if (isWaitingForReconnect(room, currentIdx)) {
+    clearTurnTimer(room);
+    return;
+  }
+
+  if (room.turnTimer) {
+    clearTimeout(room.turnTimer);
+    room.turnTimer = null;
+  }
+
+  const deadline = Date.now() + room.timerSeconds * 1000;
+  room.turnDeadline = deadline;
+  room.turnTimer = setTimeout(() => {
+    if (room.phase !== 'playing') return;
+    if (room.turnDeadline !== deadline) return;
+    room.turnTimer = null;
+    handleTurnTimeout(room);
+  }, room.timerSeconds * 1000);
+}
+
+function autoPlayKoutchinaTimeout(room: Room) {
+  const curr = room.players[room.currentPlayerIndex];
+  if (!curr) return;
+  const active = curr.hand[room.activeCardIndex];
+  if (!active) {
+    advanceTurnKoutchina(room);
+    return;
+  }
+
+  room.table.push(active);
+  curr.hand = curr.hand.filter((_, i) => i !== room.activeCardIndex);
+
+  if (curr.hand.length > 0) {
+    room.activeCardIndex = curr.hand.length - 1;
+  } else {
+    room.activeCardIndex = -1;
+  }
+
+  sendGameState(room, { type: 'drop', tile: active });
+  setTimeout(() => advanceTurnKoutchina(room), 300);
+}
+
+function findAllCaptures(activeHandValue: number, table: DominoTile[]): DominoTile[][] {
+  const nonFrozen = table.filter(t => !isBlank(t));
+  const results: DominoTile[][] = [];
+
+  function backtrack(start: number, current: DominoTile[], currentSum: number) {
+    if (currentSum === activeHandValue && current.length > 0) {
+      results.push([...current]);
+    }
+    if (currentSum >= activeHandValue) return;
+    for (let i = start; i < nonFrozen.length; i++) {
+      const val = getTileTableValue(nonFrozen[i]);
+      current.push(nonFrozen[i]);
+      backtrack(i + 1, current, currentSum + val);
+      current.pop();
+    }
+  }
+
+  backtrack(0, [], 0);
+  return results;
+}
+
+function makeBotDecision(
+  activeTile: DominoTile,
+  table: DominoTile[],
+  opponentLastCapture: DominoTile | null,
+  opponentLastCaptureGroup: DominoTile[] = [],
+  opponentWinPile: DominoTile[] = []
+) {
+  const base = { bonbona: false, bonbonaTiles: [] as DominoTile[] };
+
+  // Check bonbona opportunity (always take it for "optimal" play)
+  const canBonbona = checkBonbona(activeTile, opponentWinPile);
+  let bonbonaResult = { bonbona: false, bonbonaTiles: [] as DominoTile[] };
+  if (canBonbona && opponentWinPile.length > 0 && opponentLastCaptureGroup.length > 0) {
+    bonbonaResult = { bonbona: true, bonbonaTiles: [...opponentLastCaptureGroup] };
+  }
+
+  // Joker on empty table -> drop it
+  if (isJokerTile(activeTile) && table.length === 0) {
+    return { selected: [], drop: true, ...base };
+  }
+  // Joker sweeps all
+  if (isJokerTile(activeTile)) {
+    return { selected: table, drop: false, ...base };
+  }
+
+  const handValue = getTileHandValue(activeTile);
+  const allCaptures = findAllCaptures(handValue, table);
+
+  if (allCaptures.length === 0) {
+    if (bonbonaResult.bonbona) {
+      return { selected: [], drop: true, ...bonbonaResult };
+    }
+    return { selected: [], drop: true, ...base };
+  }
+
+  // Prefer basra (taking all non-frozen tiles)
+  const nonFrozen = table.filter(t => !isBlank(t));
+  const basraCapture = allCaptures.find(c => c.length === nonFrozen.length);
+  if (basraCapture) {
+    return { selected: basraCapture, drop: false, ...bonbonaResult };
+  }
+
+  // Otherwise pick highest value capture
+  const best = allCaptures.reduce((a, b) => {
+    const aVal = a.reduce((s, t) => s + getTileTableValue(t), 0);
+    const bVal = b.reduce((s, t) => s + getTileTableValue(t), 0);
+    return aVal >= bVal ? a : b;
+  });
+
+  return { selected: best, drop: false, ...bonbonaResult };
+}
+
+function processKoutchinaTurn(
+  room: Room,
+  currIdx: number,
+  selectedTiles: DominoTile[],
+  bonbonaTiles: DominoTile[],
+  bonbonaRequested: boolean
+): { ok: boolean; message?: string } {
+  const curr = room.players[currIdx];
+  const active = curr.hand[room.activeCardIndex];
+  if (!active) return { ok: false, message: 'No active tile' };
+
+  const selected = selectedTiles || [];
+  const bonbona = bonbonaTiles || [];
+  let bonbonaGroup = bonbona;
+  let event: any = null;
+
+  if (isJokerTile(active)) {
+    if (room.table.length === 0) {
+      room.table.push(active);
+      event = { type: 'drop', tile: active };
+    } else {
+      const swept = [...room.table];
+      const captureGroup = [...swept, active];
+      curr.winPile.push(...captureGroup);
+      pushCapture(curr, captureGroup);
+      room.table = [];
+      event = { type: 'joker', tilesSwept: swept };
+    }
+  } else if (selected.length > 0 || bonbonaRequested) {
+    const opp = currIdx === 0 ? room.players[1] : room.players[0];
+
+    if (selected.length > 0) {
+      const captureCheck = validateCapture(active, selected, room.table);
+      if (!captureCheck.ok) {
+        return { ok: false, message: captureCheck.message || 'Invalid capture' };
+      }
+    }
+
+    let bonbonaIsBasra = false;
+    if (bonbonaRequested) {
+      const bonbonaCheck = validateBonbonaRequest(active, opp, bonbona);
+      if (!bonbonaCheck.ok) {
+        return { ok: false, message: bonbonaCheck.message || 'Invalid bonbona' };
+      }
+
+      bonbonaGroup = bonbonaCheck.group || [];
+      bonbonaIsBasra = bonbonaCheck.countsAsBasra === true;
+      if (bonbonaIsBasra) {
+        opp.basraCount = Math.max(0, opp.basraCount - 1);
+      }
+
+      if (bonbonaGroup.length > 0) {
+        opp.winPile = opp.winPile.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
+        opp.basraTiles = opp.basraTiles.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
+        popCapture(opp);
+      }
+    }
+
+    const basra = selected.length > 0 && isBasra(room.table, selected, active);
+    const captured = [...selected, ...bonbonaGroup, active];
+
+    curr.winPile.push(...captured);
+    pushCapture(curr, captured);
+    room.table = room.table.filter(t => !selected.some(s => tilesEqual(s, t)));
+
+    if (basra || bonbonaIsBasra) {
+      curr.basraCount++;
+      curr.basraTiles.push(active);
+    }
+
+    const isBonbona = bonbonaRequested;
+    if (isBonbona) {
+      event = bonbonaIsBasra ? { type: 'basra_bonbona' } : { type: 'bonbona' };
+    } else if (basra) {
+      event = { type: 'basra' };
+    } else {
+      event = { type: 'capture', tiles: captured };
+    }
+  } else {
+    room.table.push(active);
+    event = { type: 'drop', tile: active };
+  }
+
+  curr.hand = curr.hand.filter((_, i) => i !== room.activeCardIndex);
+
+  if (curr.hand.length > 0) {
+    room.activeCardIndex = curr.hand.length - 1;
+  } else {
+    room.activeCardIndex = -1;
+  }
+
+  sendGameState(room, event);
+  setTimeout(() => advanceTurnKoutchina(room), 300);
+  return { ok: true };
+}
+
+function executeBotTurn(room: Room) {
+  if (room.phase !== 'playing' || room.players.length < 2) return;
+  if (!shouldUseBotReplacement(room)) return;
+
+  const currIdx = room.currentPlayerIndex as 0 | 1;
+  const disconn = findDisconnectedByPlayerIndex(room, currIdx);
+  if (!disconn || !disconn.info.botActive) return;
+
+  if (room.variant === 'classic') {
+    autoPlayClassicTimeout(room);
+    return;
+  }
+
+  const curr = room.players[currIdx];
+  const active = curr.hand[room.activeCardIndex];
+  if (!active) {
+    advanceTurnKoutchina(room);
+    return;
+  }
+
+  const opp = currIdx === 0 ? room.players[1] : room.players[0];
+  const decision = makeBotDecision(
+    active,
+    room.table,
+    opp.lastCapture,
+    opp.lastCaptureGroup,
+    opp.winPile
+  );
+
+  const result = processKoutchinaTurn(
+    room,
+    currIdx,
+    decision.selected || [],
+    decision.bonbonaTiles || [],
+    decision.bonbona === true
+  );
+
+  if (!result.ok) {
+    autoPlayKoutchinaTimeout(room);
+  }
+}
+
+function scheduleBotTurn(room: Room, delayMs: number = 1200) {
+  setTimeout(() => {
+    const currIdx = room.currentPlayerIndex as 0 | 1;
+    const disconn = findDisconnectedByPlayerIndex(room, currIdx);
+    if (!disconn || !disconn.info.botActive) return;
+    executeBotTurn(room);
+  }, delayMs);
+}
+
+function activateBot(room: Room, playerIndex: 0 | 1) {
+  if (!shouldUseBotReplacement(room)) return;
+  const disconn = findDisconnectedByPlayerIndex(room, playerIndex);
+  if (!disconn) return;
+
+  disconn.info.gracePeriodTimer = null;
+  disconn.info.botActive = true;
+  if (disconn.info.rejoinWindowTimer) {
+    clearTimeout(disconn.info.rejoinWindowTimer);
+  }
+  disconn.info.rejoinWindowTimer = setTimeout(() => {
+    const stillDisconnected = findDisconnectedByPlayerIndex(room, playerIndex);
+    if (!stillDisconnected || !stillDisconnected.info.botActive) return;
+
+    room.phase = 'game_over';
+    clearTurnTimer(room);
+    sendGameState(room, {
+      type: 'opponent_abandoned',
+      message: 'فاز خصمك بسبب انقطاع الاتصال',
+    });
+
+    clearDisconnectedPlayers(room);
+    rooms.delete(room.code);
+  }, 5 * 60 * 1000);
+
+  const remainingIndex = playerIndex === 0 ? 1 : 0;
+  const remainingPlayer = room.players[remainingIndex];
+  if (remainingPlayer) {
+    io.to(remainingPlayer.id).emit('game:bot_activated', {
+      message: 'خصمك لم يعد — البوت يلعب مكانه',
+    });
+  }
+
+  if (room.currentPlayerIndex === playerIndex) {
+    scheduleBotTurn(room, 1500);
+  }
+}
+
+function maybeTriggerBotTurn(room: Room) {
+  if (!shouldUseBotReplacement(room)) return;
+  const currIdx = room.currentPlayerIndex as 0 | 1;
+  const disconn = findDisconnectedByPlayerIndex(room, currIdx);
+  if (!disconn || !disconn.info.botActive) return;
+  scheduleBotTurn(room);
+}
+
+function clearDisconnectedPlayers(room: Room) {
+  for (const entry of room.disconnectedPlayers.values()) {
+    if (entry.gracePeriodTimer) {
+      clearTimeout(entry.gracePeriodTimer);
+    }
+    if (entry.rejoinWindowTimer) {
+      clearTimeout(entry.rejoinWindowTimer);
+    }
+  }
+  room.disconnectedPlayers.clear();
+}
+
+function autoPlayClassicTimeout(room: Room) {
+  const currIdx = room.currentPlayerIndex;
+  const curr = room.players[currIdx];
+  if (!curr) return;
+
+  const playable: { index: number; tile: DominoTile; ends: ('left' | 'right')[] }[] = [];
+  curr.hand.forEach((tile, idx) => {
+    if (canPlayTile(tile, room.chainEnds)) {
+      playable.push({ index: idx, tile, ends: getPlayableEnds(tile, room.chainEnds) });
+    }
+  });
+
+  if (playable.length > 0) {
+    const pick = playable[Math.floor(Math.random() * playable.length)];
+    const end = pick.ends[Math.floor(Math.random() * pick.ends.length)];
+    room.chain = placeTile(room.chain, pick.tile, end);
+    room.chainEnds = getChainEnds(room.chain);
+    curr.hand.splice(pick.index, 1);
+
+    sendGameState(room, { type: 'play', playerIndex: currIdx, tile: pick.tile, end });
+
+    if (curr.hand.length === 0) {
+      endRound(room, currIdx);
+      return;
+    }
+
+    if (isGameBlockedMulti(room.players.map(p => p.hand), room.boneyard, room.chainEnds)) {
+      room.phase = 'blocked';
+      clearTurnTimer(room);
+      sendGameState(room, { type: 'block', message: 'Game blocked' });
+      setTimeout(() => endRound(room, -1), 1000);
+      return;
+    }
+
+    advanceTurnClassic(room);
+    return;
+  }
+
+  if (room.boneyard.length > 0) {
+    const drawn = room.boneyard.pop()!;
+    curr.hand.push(drawn);
+    sendGameState(room, { type: 'draw', playerIndex: currIdx, count: 1 });
+    advanceTurnClassic(room);
+    return;
+  }
+
+  sendGameState(room, { type: 'pass', playerIndex: currIdx });
+
+  if (isGameBlockedMulti(room.players.map(p => p.hand), room.boneyard, room.chainEnds)) {
+    room.phase = 'blocked';
+    clearTurnTimer(room);
+    sendGameState(room, { type: 'block', message: 'Game blocked' });
+    setTimeout(() => endRound(room, -1), 1000);
+    return;
+  }
+
+  advanceTurnClassic(room);
 }
 
 function startRound(room: Room) {
@@ -392,12 +850,16 @@ function startRound(room: Room) {
     room.activeCardIndex = starter.hand.length - 1;
   }
 
+  resetTurnTimer(room);
   sendGameState(room);
+  maybeTriggerBotTurn(room);
 }
 
 function advanceTurnClassic(room: Room) {
   room.currentPlayerIndex = (room.currentPlayerIndex + 1) % room.players.length;
+  resetTurnTimer(room);
   sendGameState(room);
+  maybeTriggerBotTurn(room);
 }
 
 function advanceTurnKoutchina(room: Room) {
@@ -426,7 +888,9 @@ function advanceTurnKoutchina(room: Room) {
   const next = room.players[room.currentPlayerIndex];
   room.activeCardIndex = next.hand.length - 1;
 
+  resetTurnTimer(room);
   sendGameState(room);
+  maybeTriggerBotTurn(room);
 }
 
 function endRound(room: Room, finisherIndex: number = -1) {
@@ -471,6 +935,7 @@ function endRound(room: Room, finisherIndex: number = -1) {
     room.phase = 'round_end';
   }
 
+  clearTurnTimer(room);
   sendGameState(room, { type: 'round_end' });
 }
 
@@ -499,6 +964,9 @@ io.on('connection', (socket) => {
       targetScore: data.targetScore ?? (variant === 'classic' ? 100 : 600),
       timerEnabled: data.timerEnabled ?? false,
       timerSeconds: data.timerSeconds ?? 30,
+      turnDeadline: null,
+      turnTimer: null,
+      disconnectedPlayers: new Map(),
       roundNumber: 1,
       phase: 'waiting',
       activeCardIndex: -1,
@@ -535,6 +1003,61 @@ io.on('connection', (socket) => {
       console.log(`[Started] ${room.code}: ${room.players.map(p => p.name).join(' vs ')}`);
       setTimeout(() => startRound(room), 500);
     }
+  });
+
+  socket.on('room:rejoin', (data: { roomCode: string; playerName: string; originalPlayerId: string }) => {
+    const room = rooms.get(data.roomCode.toUpperCase());
+    if (!room) {
+      socket.emit('room:error', { message: 'الغرفة لم تعد موجودة' });
+      return;
+    }
+
+    const disconnEntry = [...room.disconnectedPlayers.entries()].find(([id, d]) =>
+      id === data.originalPlayerId || d.playerName === data.playerName
+    );
+
+    if (!disconnEntry) {
+      socket.emit('room:error', { message: 'لم يتم العثور على جلستك' });
+      return;
+    }
+
+    const [oldSocketId, disconnInfo] = disconnEntry;
+
+    if (disconnInfo.gracePeriodTimer) {
+      clearTimeout(disconnInfo.gracePeriodTimer);
+      disconnInfo.gracePeriodTimer = null;
+    }
+    if (disconnInfo.rejoinWindowTimer) {
+      clearTimeout(disconnInfo.rejoinWindowTimer);
+      disconnInfo.rejoinWindowTimer = null;
+    }
+
+    room.players[disconnInfo.playerIndex].id = socket.id;
+    if (data.playerName && room.players[disconnInfo.playerIndex]) {
+      room.players[disconnInfo.playerIndex].name = data.playerName;
+      disconnInfo.playerName = data.playerName;
+    }
+    socket.join(room.code);
+
+    room.disconnectedPlayers.delete(oldSocketId);
+    disconnInfo.botActive = false;
+
+    if (room.phase === 'playing' && room.currentPlayerIndex === disconnInfo.playerIndex) {
+      resetTurnTimer(room);
+    }
+
+    socket.emit('room:rejoined', { roomCode: room.code, playerId: socket.id });
+    sendGameState(room, { type: 'player_rejoined' });
+
+    const opponentIndex = disconnInfo.playerIndex === 0 ? 1 : 0;
+    const opponent = room.players[opponentIndex];
+    if (opponent) {
+      io.to(opponent.id).emit('game:opponent_reconnected', {
+        playerName: disconnInfo.playerName,
+      });
+    }
+
+    console.log(`[Rejoined] ${disconnInfo.playerName} rejoined room ${room.code}`);
   });
 
   socket.on('game:action', (data: { type?: string; end?: string; tileIndex?: number; selectedTiles?: DominoTile[]; bonbonaTiles?: DominoTile[]; bonbona?: boolean }) => {
@@ -594,6 +1117,7 @@ io.on('connection', (socket) => {
 
         if (isGameBlockedMulti(room.players.map(p => p.hand), room.boneyard, room.chainEnds)) {
           room.phase = 'blocked';
+          clearTurnTimer(room);
           sendGameState(room, { type: 'block', message: 'Game blocked' });
           setTimeout(() => endRound(room, -1), 1000);
           return;
@@ -631,6 +1155,7 @@ io.on('connection', (socket) => {
 
         if (isGameBlockedMulti(room.players.map(p => p.hand), room.boneyard, room.chainEnds)) {
           room.phase = 'blocked';
+          clearTurnTimer(room);
           sendGameState(room, { type: 'block', message: 'Game blocked' });
           setTimeout(() => endRound(room, -1), 1000);
           return;
@@ -645,95 +1170,14 @@ io.on('connection', (socket) => {
     }
 
     // Koutchina logic
-    const active = curr.hand[room.activeCardIndex];
-    if (!active) { socket.emit('game:invalid', { message: 'No active tile' }); return; }
-
     const selected = data.selectedTiles || [];
     const bonbona = data.bonbonaTiles || [];
     const bonbonaRequested = data.bonbona === true || bonbona.length > 0;
-    let bonbonaGroup = bonbona;
-
-    let event: any = null;
-
-    if (isJokerTile(active)) {
-      if (room.table.length === 0) {
-        room.table.push(active);
-        event = { type: 'drop', tile: active };
-      } else {
-        const swept = [...room.table];
-        const captureGroup = [...swept, active];
-        curr.winPile.push(...captureGroup);
-        pushCapture(curr, captureGroup);
-        room.table = [];
-        event = { type: 'joker', tilesSwept: swept };
-      }
-    } else if (selected.length > 0 || bonbonaRequested) {
-      const opp = currIdx === 0 ? room.players[1] : room.players[0];
-
-      if (selected.length > 0) {
-        const captureCheck = validateCapture(active, selected, room.table);
-        if (!captureCheck.ok) {
-          socket.emit('game:invalid', { message: captureCheck.message || 'Invalid capture' });
-          return;
-        }
-      }
-
-      let bonbonaIsBasra = false;
-      if (bonbonaRequested) {
-        const bonbonaCheck = validateBonbonaRequest(active, opp, bonbona);
-        if (!bonbonaCheck.ok) {
-          socket.emit('game:invalid', { message: bonbonaCheck.message || 'Invalid bonbona' });
-          return;
-        }
-
-        bonbonaGroup = bonbonaCheck.group || [];
-        bonbonaIsBasra = bonbonaCheck.countsAsBasra === true;
-        if (bonbonaIsBasra) {
-          opp.basraCount = Math.max(0, opp.basraCount - 1);
-        }
-
-        if (bonbonaGroup.length > 0) {
-          opp.winPile = opp.winPile.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
-          opp.basraTiles = opp.basraTiles.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
-          popCapture(opp);
-        }
-      }
-
-      const basra = selected.length > 0 && isBasra(room.table, selected, active);
-      const captured = [...selected, ...bonbonaGroup, active];
-
-      curr.winPile.push(...captured);
-      pushCapture(curr, captured);
-      room.table = room.table.filter(t => !selected.some(s => tilesEqual(s, t)));
-
-      if (basra || bonbonaIsBasra) {
-        curr.basraCount++;
-        curr.basraTiles.push(active);
-      }
-
-      const isBonbona = bonbonaRequested;
-      if (isBonbona) {
-        event = bonbonaIsBasra ? { type: 'basra_bonbona' } : { type: 'bonbona' };
-      } else if (basra) {
-        event = { type: 'basra' };
-      } else {
-        event = { type: 'capture', tiles: captured };
-      }
-    } else {
-      room.table.push(active);
-      event = { type: 'drop', tile: active };
+    const result = processKoutchinaTurn(room, currIdx, selected, bonbona, bonbonaRequested);
+    if (!result.ok) {
+      socket.emit('game:invalid', { message: result.message || 'Invalid action' });
     }
-
-    curr.hand = curr.hand.filter((_, i) => i !== room.activeCardIndex);
-
-    if (curr.hand.length > 0) {
-      room.activeCardIndex = curr.hand.length - 1;
-    } else {
-      room.activeCardIndex = -1;
-    }
-
-    sendGameState(room, event);
-    setTimeout(() => advanceTurnKoutchina(room), 300);
+    return;
   });
 
   socket.on('game:drop', () => {
@@ -786,12 +1230,15 @@ io.on('connection', (socket) => {
 
     if (room.status === 'playing') {
       io.to(room.code).emit('game:opponent_disconnected');
+      clearTurnTimer(room);
+      clearDisconnectedPlayers(room);
       rooms.delete(room.code);
       return;
     }
 
     room.players = room.players.filter(p => p.id !== socket.id);
     if (room.players.length === 0) {
+      clearDisconnectedPlayers(room);
       rooms.delete(room.code);
       return;
     }
@@ -803,8 +1250,44 @@ io.on('connection', (socket) => {
     const room = findRoom(socket.id);
     if (!room) return;
 
+    if (room.status === 'playing' && shouldUseBotReplacement(room)) {
+      const playerIndex = room.players.findIndex(p => p.id === socket.id);
+      const player = room.players[playerIndex];
+      if (playerIndex >= 0 && playerIndex <= 1 && player && !room.disconnectedPlayers.has(socket.id)) {
+        const idx = playerIndex as 0 | 1;
+        const gracePeriodTimer = setTimeout(() => {
+          activateBot(room, idx);
+        }, 30_000);
+
+        room.disconnectedPlayers.set(socket.id, {
+          originalSocketId: socket.id,
+          playerIndex: idx,
+          playerName: player.name,
+          disconnectedAt: Date.now(),
+          gracePeriodTimer,
+          botActive: false,
+          rejoinWindowTimer: null,
+        });
+
+        io.to(room.code).emit('game:opponent_disconnected', {
+          playerName: player.name,
+          gracePeriodSeconds: 30,
+        });
+
+        if (room.currentPlayerIndex === idx) {
+          clearTurnTimer(room);
+          sendGameState(room);
+        }
+      }
+
+      console.log(`[-] ${socket.id}`);
+      return;
+    }
+
     if (room.status === 'playing') {
       io.to(room.code).emit('game:opponent_disconnected');
+      clearTurnTimer(room);
+      clearDisconnectedPlayers(room);
       rooms.delete(room.code);
       console.log(`[-] ${socket.id}`);
       return;
@@ -812,6 +1295,7 @@ io.on('connection', (socket) => {
 
     room.players = room.players.filter(p => p.id !== socket.id);
     if (room.players.length === 0) {
+      clearDisconnectedPlayers(room);
       rooms.delete(room.code);
     } else {
       sendRoomState(room);
