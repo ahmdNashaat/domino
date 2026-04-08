@@ -129,7 +129,7 @@ export default function OnlineRoomPage() {
   // ── Playing — redirect via useEffect ──────────────────────────────
   useEffect(() => {
     if (roomStatus === 'playing') {
-      navigate('/online/game');
+      navigate('/online/game', { replace: true });
     }
   }, [roomStatus, navigate]);
 

@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
+import { useBackButtonStore } from '@/store/backButtonStore';
 
 export function useAndroidBackButton() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const showExitConfirm = useBackButtonStore(s => s.showExitConfirm);
+  const setShowExitConfirm = useBackButtonStore(s => s.setShowExitConfirm);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -21,8 +23,17 @@ export function useAndroidBackButton() {
       }
 
       // Game screens → show exit confirmation
-      if (path === '/game' || path === '/classic-game' || path === '/online/game') {
+      if (path === '/online/score') {
+        navigate('/home', { replace: true });
+        return;
+      }
+
+      if (path === '/online/game') {
         setShowExitConfirm(true);
+        return;
+      }
+
+      if (path === '/game' || path === '/classic-game') {
         return;
       }
 

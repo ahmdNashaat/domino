@@ -6,151 +6,135 @@ import { isDouble } from '@/utils/classicGameEngine';
 interface ChainAreaProps {
   chain: DominoTile[];
   chainEnds: [number, number];
+  highlightEnds?: boolean;
+  onLeftEndClick?: () => void;   // click on first tile → left end
+  onRightEndClick?: () => void;  // click on last tile  → right end
 }
 
-const TILE_W = 48;
-const TILE_H = 24;
-const DOUBLE_W = 24;
-const DOUBLE_H = 48;
-const GAP = 2;
+const GAP = 5;
+const MAX_BASE = 38;
+const MIN_BASE = 14;
 
 function DotPattern({ count }: { count: number }) {
   const positions: Record<number, [number, number][]> = {
     0: [],
     1: [[50, 50]],
     2: [[30, 30], [70, 70]],
-    3: [[30, 25], [50, 50], [70, 75]],
-    4: [[30, 30], [70, 30], [30, 70], [70, 70]],
-    5: [[30, 25], [70, 25], [50, 50], [30, 75], [70, 75]],
-    6: [[30, 20], [70, 20], [30, 50], [70, 50], [30, 80], [70, 80]],
+    3: [[25, 25], [50, 50], [75, 75]],
+    4: [[28, 28], [72, 28], [28, 72], [72, 72]],
+    5: [[28, 25], [72, 25], [50, 50], [28, 75], [72, 75]],
+    6: [[28, 18], [72, 18], [28, 50], [72, 50], [28, 82], [72, 82]],
   };
-  const pos = positions[count] || [];
+  const pos = positions[Math.min(count, 6)] || [];
   return (
     <svg viewBox="0 0 100 100" className="w-full h-full">
       {pos.map((p, i) => (
-        <circle key={i} cx={p[0]} cy={p[1]} r={9} className="fill-[hsl(var(--tile-dot))]" />
+        <circle key={i} cx={p[0]} cy={p[1]} r={11} className="fill-[hsl(var(--tile-dot))]" />
       ))}
     </svg>
   );
 }
 
-interface TilePos {
-  x: number;
-  y: number;
+function ChainTile({
+  tile,
+  index,
+  highlight,
+  base,
+  onClick,
+}: {
   tile: DominoTile;
-  double: boolean;
-}
+  index: number;
+  highlight: boolean;
+  base: number;
+  onClick?: () => void;
+}) {
+  const double = isDouble(tile);
+  const glowStyle: React.CSSProperties = highlight
+    ? {
+        boxShadow: '0 0 0 2.5px hsl(160 100% 39%), 0 0 14px hsl(160 100% 39% / 0.55)',
+        cursor: onClick ? 'pointer' : 'default',
+      }
+    : {};
 
-function calculateSnakePositions(chain: DominoTile[], containerWidth: number): { positions: TilePos[]; totalW: number; totalH: number } {
-  if (chain.length === 0) return { positions: [], totalW: 0, totalH: 0 };
+  const dividerThick = Math.max(1.5, base * 0.04);
+  const pulseClass = highlight && onClick ? 'animate-pulse' : '';
 
-  const maxRowWidth = Math.max(containerWidth, 120);
-  const positions: TilePos[] = [];
-
-  let curX = 0;
-  let direction = 1; // 1=LTR, -1=RTL
-  let rowIndex = 0;
-  let maxX = 0;
-
-  const rowH = DOUBLE_H;
-
-  for (let i = 0; i < chain.length; i++) {
-    const tile = chain[i];
-    const dbl = isDouble(tile);
-    const tileW = dbl ? DOUBLE_W : TILE_W;
-    const tileH = dbl ? DOUBLE_H : TILE_H;
-
-    // Check overflow
-    const nextEdge = direction === 1 ? curX + tileW : curX - tileW;
-    const wouldOverflow = direction === 1 ? nextEdge > maxRowWidth : nextEdge < 0;
-
-    if (wouldOverflow && i > 0) {
-      rowIndex++;
-      direction *= -1;
-      curX = direction === 1 ? 0 : maxRowWidth;
-    }
-
-    let placeX: number;
-    if (direction === 1) {
-      placeX = curX;
-      curX += tileW + GAP;
-    } else {
-      placeX = curX - tileW;
-      curX -= tileW + GAP;
-    }
-
-    const placeY = rowIndex * (rowH + GAP) + (rowH - tileH) / 2;
-
-    positions.push({ x: placeX, y: placeY, tile, double: dbl });
-    maxX = Math.max(maxX, placeX + tileW);
-  }
-
-  const totalH = (rowIndex + 1) * (rowH + GAP);
-  return { positions, totalW: maxX, totalH };
-}
-
-function ChainTile({ pos, index, isLast }: { pos: TilePos; index: number; isLast: boolean }) {
-  const glowClass = isLast ? 'ring-2 ring-primary/50 shadow-lg shadow-primary/20' : '';
-
-  if (pos.double) {
+  if (double) {
+    const W = base;
+    const H = base * 2;
+    const dividerW = Math.max(2, W * 0.7);
     return (
       <motion.div
-        className={`absolute flex flex-col tile-face rounded-md border border-primary/20 shadow-md overflow-hidden ${glowClass}`}
-        style={{ left: pos.x, top: pos.y, width: DOUBLE_W, height: DOUBLE_H }}
+        className={`flex-shrink-0 tile-face rounded-md border border-primary/25 shadow-md overflow-hidden flex flex-col ${pulseClass}`}
+        style={{ width: W, height: H, ...glowStyle }}
         initial={{ scale: 0, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 20, delay: index * 0.02 }}
+        transition={{ type: 'spring', stiffness: 350, damping: 22, delay: index * 0.025 }}
+        onClick={onClick}
+        whileTap={onClick ? { scale: 0.93 } : {}}
       >
-        <div className="flex-1 p-0.5"><DotPattern count={pos.tile[0]} /></div>
-        <div className="w-4 mx-auto h-px bg-[hsl(var(--tile-divider))]" />
-        <div className="flex-1 p-0.5"><DotPattern count={pos.tile[1]} /></div>
+        <div className="flex-1 p-[1px]"><DotPattern count={tile[0]} /></div>
+        <div className="mx-auto bg-[hsl(var(--tile-divider))]" style={{ width: dividerW, height: dividerThick }} />
+        <div className="flex-1 p-[1px]"><DotPattern count={tile[1]} /></div>
       </motion.div>
     );
   }
 
+  const W = base * 2;
+  const H = base;
+  const dividerH = Math.max(2, H * 0.65);
   return (
     <motion.div
-      className={`absolute flex flex-row tile-face rounded-md border border-primary/20 shadow-md overflow-hidden ${glowClass}`}
-      style={{ left: pos.x, top: pos.y, width: TILE_W, height: TILE_H }}
+      className={`flex-shrink-0 tile-face rounded-md border border-primary/25 shadow-md overflow-hidden flex flex-row ${pulseClass}`}
+      style={{ width: W, height: H, ...glowStyle }}
       initial={{ scale: 0, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 20, delay: index * 0.02 }}
+      transition={{ type: 'spring', stiffness: 350, damping: 22, delay: index * 0.025 }}
+      onClick={onClick}
+      whileTap={onClick ? { scale: 0.93 } : {}}
     >
-      <div className="flex-1 p-0.5"><DotPattern count={pos.tile[0]} /></div>
-      <div className="h-4 my-auto w-px bg-[hsl(var(--tile-divider))]" />
-      <div className="flex-1 p-0.5"><DotPattern count={pos.tile[1]} /></div>
+      <div className="flex-1 p-[1px]"><DotPattern count={tile[0]} /></div>
+      <div className="my-auto bg-[hsl(var(--tile-divider))]" style={{ width: dividerThick, height: dividerH }} />
+      <div className="flex-1 p-[1px]"><DotPattern count={tile[1]} /></div>
     </motion.div>
   );
 }
 
-export default function ChainArea({ chain }: ChainAreaProps) {
+export default function ChainArea({
+  chain,
+  highlightEnds = false,
+  onLeftEndClick,
+  onRightEndClick,
+}: ChainAreaProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dims, setDims] = useState({ w: 300, h: 200 });
+  const [containerW, setContainerW] = useState(700);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const update = () => setDims({ w: el.clientWidth, h: el.clientHeight });
+    const update = () => setContainerW(el.clientWidth);
     update();
     const obs = new ResizeObserver(update);
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
 
-  const { positions, totalW, totalH } = useMemo(
-    () => calculateSnakePositions(chain, dims.w - 16),
-    [chain, dims.w]
-  );
-
-  const scaleX = totalW > 0 ? dims.w / totalW : 1;
-  const scaleY = totalH > 0 ? dims.h / totalH : 1;
-  const scale = Math.min(scaleX, scaleY, 2.5);
+  const base = useMemo(() => {
+    if (chain.length === 0) return MAX_BASE;
+    const available = containerW - 24;
+    const doubleCount = chain.filter(isDouble).length;
+    const normalCount = chain.length - doubleCount;
+    const totalGaps = GAP * (chain.length - 1);
+    const slots = normalCount * 2 + doubleCount;
+    const raw = slots > 0 ? (available - totalGaps) / slots : MAX_BASE;
+    return Math.max(MIN_BASE, Math.min(MAX_BASE, raw));
+  }, [chain, containerW]);
 
   if (chain.length === 0) {
     return (
       <div ref={containerRef} className="flex-1 flex items-center justify-center">
         <motion.p
-          className="text-muted-foreground font-arabic text-base opacity-50"
+          className="text-muted-foreground font-arabic text-base opacity-50 select-none"
           animate={{ opacity: [0.3, 0.6, 0.3] }}
           transition={{ duration: 2, repeat: Infinity }}
         >
@@ -164,25 +148,42 @@ export default function ChainArea({ chain }: ChainAreaProps) {
     <div
       ref={containerRef}
       dir="ltr"
-      className="flex-1 flex items-center justify-center overflow-hidden px-2 py-2"
+      className="flex-1 flex items-center justify-center overflow-hidden px-3"
     >
+      {/* Hint label when ends are highlighted */}
+      {highlightEnds && (onLeftEndClick || onRightEndClick) && (
+        <motion.p
+          className="absolute top-2 left-1/2 -translate-x-1/2 text-[11px] font-arabic text-emerald-400 bg-card/80 px-3 py-1 rounded-full border border-emerald-400/30 pointer-events-none z-10"
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          اضغط على الطرف المطلوب 🟢
+        </motion.p>
+      )}
+
       <div
-        className="relative"
-        style={{
-          width: totalW,
-          height: totalH,
-          transform: `scale(${scale})`,
-          transformOrigin: 'center',
-        }}
+        className="flex flex-row items-center justify-center"
+        style={{ gap: GAP, flexWrap: 'nowrap' }}
       >
-        {positions.map((pos, i) => (
-          <ChainTile
-            key={`${pos.tile[0]}-${pos.tile[1]}-${i}`}
-            pos={pos}
-            index={i}
-            isLast={i === chain.length - 1}
-          />
-        ))}
+        {chain.map((tile, i) => {
+          const isFirst = i === 0;
+          const isLast = i === chain.length - 1;
+          const isEnd = isFirst || isLast;
+          const clickHandler = highlightEnds && isEnd
+            ? isFirst ? onLeftEndClick : onRightEndClick
+            : undefined;
+
+          return (
+            <ChainTile
+              key={`${tile[0]}-${tile[1]}-${i}`}
+              tile={tile}
+              index={i}
+              base={base}
+              highlight={highlightEnds && isEnd}
+              onClick={clickHandler}
+            />
+          );
+        })}
       </div>
     </div>
   );

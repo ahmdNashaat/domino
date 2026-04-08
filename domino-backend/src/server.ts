@@ -44,7 +44,18 @@ interface PlayerState {
   cumulativeScore: number;
   lastCapture: DominoTile | null;
   lastCaptureGroup: DominoTile[];
-  captureHistory: DominoTile[][];
+  captureHistory: CaptureRecord[];
+}
+
+interface CaptureRecord {
+  group: DominoTile[];
+  activeTile: DominoTile;
+}
+
+interface RematchState {
+  requestedBy: string;
+  pending: Set<string>;
+  timeout: NodeJS.Timeout | null;
 }
 
 interface Room {
@@ -67,6 +78,7 @@ interface Room {
   phase: 'waiting' | 'playing' | 'round_end' | 'game_over' | 'blocked';
   activeCardIndex: number;
   variant: 'koutchina' | 'classic';
+  rematch: RematchState | null;
 }
 
 interface DisconnectedPlayer {
@@ -80,6 +92,7 @@ interface DisconnectedPlayer {
 }
 
 const rooms = new Map<string, Room>();
+const REMATCH_TIMEOUT_MS = 30_000;
 
 // Game helpers
 // -----------------------------------------------------------------------------
@@ -236,19 +249,19 @@ function resetPlayerForRound(player: PlayerState, variant: 'koutchina' | 'classi
   }
 }
 
-function pushCapture(player: PlayerState, group: DominoTile[]) {
-  player.captureHistory.push(group);
+function pushCapture(player: PlayerState, group: DominoTile[], activeTile: DominoTile) {
+  player.captureHistory.push({ group, activeTile });
   player.lastCaptureGroup = group;
-  player.lastCapture = group.length > 0 ? group[group.length - 1] : null;
+  player.lastCapture = activeTile;
 }
 
 function popCapture(player: PlayerState) {
   if (player.captureHistory.length > 0) {
     player.captureHistory.pop();
   }
-  const lastGroup = player.captureHistory[player.captureHistory.length - 1] || [];
-  player.lastCaptureGroup = lastGroup;
-  player.lastCapture = lastGroup.length > 0 ? lastGroup[lastGroup.length - 1] : null;
+  const lastCapture = player.captureHistory[player.captureHistory.length - 1] || null;
+  player.lastCaptureGroup = lastCapture?.group || [];
+  player.lastCapture = lastCapture?.activeTile || null;
 }
 
 function buildRoomState(room: Room) {
@@ -371,6 +384,47 @@ function sendGameState(room: Room, lastEvent?: any) {
     opponentLastCapture: p0.lastCapture,
     opponentLastCaptureGroup: p0.lastCaptureGroup,
   });
+}
+
+function clearRematch(room: Room) {
+  if (room.rematch?.timeout) {
+    clearTimeout(room.rematch.timeout);
+  }
+  room.rematch = null;
+}
+
+function emitRematchDeclined(room: Room) {
+  io.to(room.code).emit('game:rematch_declined');
+}
+
+function startRematch(room: Room, requesterId: string) {
+  const pending = new Set(room.players.map(p => p.id).filter(id => id !== requesterId));
+  room.rematch = { requestedBy: requesterId, pending, timeout: null };
+
+  room.rematch.timeout = setTimeout(() => {
+    if (!room.rematch) return;
+    emitRematchDeclined(room);
+    clearRematch(room);
+  }, REMATCH_TIMEOUT_MS);
+
+  room.players.forEach(p => {
+    if (p.id !== requesterId) {
+      io.to(p.id).emit('game:rematch_request');
+    }
+  });
+}
+
+function acceptRematch(room: Room, socketId: string) {
+  if (!room.rematch) return;
+  if (room.rematch.pending.has(socketId)) {
+    room.rematch.pending.delete(socketId);
+  }
+  if (room.rematch.pending.size === 0) {
+    io.to(room.code).emit('game:rematch_accepted');
+    room.roundNumber++;
+    clearRematch(room);
+    startRound(room);
+  }
 }
 
 function shouldUseTurnTimer(room: Room): boolean {
@@ -497,7 +551,7 @@ function makeBotDecision(
   const base = { bonbona: false, bonbonaTiles: [] as DominoTile[] };
 
   // Check bonbona opportunity (always take it for "optimal" play)
-  const canBonbona = checkBonbona(activeTile, opponentWinPile);
+  const canBonbona = checkBonbona(activeTile, opponentLastCapture);
   let bonbonaResult = { bonbona: false, bonbonaTiles: [] as DominoTile[] };
   if (canBonbona && opponentWinPile.length > 0 && opponentLastCaptureGroup.length > 0) {
     bonbonaResult = { bonbona: true, bonbonaTiles: [...opponentLastCaptureGroup] };
@@ -563,7 +617,7 @@ function processKoutchinaTurn(
       const swept = [...room.table];
       const captureGroup = [...swept, active];
       curr.winPile.push(...captureGroup);
-      pushCapture(curr, captureGroup);
+      pushCapture(curr, captureGroup, active);
       room.table = [];
       event = { type: 'joker', tilesSwept: swept };
     }
@@ -593,6 +647,7 @@ function processKoutchinaTurn(
       if (bonbonaGroup.length > 0) {
         opp.winPile = opp.winPile.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
         opp.basraTiles = opp.basraTiles.filter(w => !bonbonaGroup.some(bt => tilesEqual(bt, w)));
+        room.table = room.table.filter(t => !bonbonaGroup.some(bt => tilesEqual(bt, t)));
         popCapture(opp);
       }
     }
@@ -601,7 +656,7 @@ function processKoutchinaTurn(
     const captured = [...selected, ...bonbonaGroup, active];
 
     curr.winPile.push(...captured);
-    pushCapture(curr, captured);
+    pushCapture(curr, captured, active);
     room.table = room.table.filter(t => !selected.some(s => tilesEqual(s, t)));
 
     if (basra || bonbonaIsBasra) {
@@ -804,6 +859,7 @@ function autoPlayClassicTimeout(room: Room) {
 }
 
 function startRound(room: Room) {
+  clearRematch(room);
   const tiles = shuffle(generateTiles());
 
   room.phase = 'playing';
@@ -971,6 +1027,7 @@ io.on('connection', (socket) => {
       phase: 'waiting',
       activeCardIndex: -1,
       variant,
+      rematch: null,
     };
 
     rooms.set(code, room);
@@ -1203,12 +1260,35 @@ io.on('connection', (socket) => {
     setTimeout(() => advanceTurnKoutchina(room), 300);
   });
 
-  socket.on('game:next_round', () => {
+  const handleRematchRequest = () => {
     const room = findRoom(socket.id);
     if (!room || room.phase !== 'round_end') return;
-    room.roundNumber++;
-    startRound(room);
-  });
+    if (room.rematch) {
+      if (room.rematch.requestedBy !== socket.id && room.rematch.pending.has(socket.id)) {
+        acceptRematch(room, socket.id);
+      }
+      return;
+    }
+    startRematch(room, socket.id);
+  };
+
+  const handleRematchAccepted = () => {
+    const room = findRoom(socket.id);
+    if (!room || !room.rematch) return;
+    acceptRematch(room, socket.id);
+  };
+
+  const handleRematchDeclined = () => {
+    const room = findRoom(socket.id);
+    if (!room || !room.rematch) return;
+    emitRematchDeclined(room);
+    clearRematch(room);
+  };
+
+  socket.on('game:rematch_request', handleRematchRequest);
+  socket.on('game:rematch_accepted', handleRematchAccepted);
+  socket.on('game:rematch_declined', handleRematchDeclined);
+  socket.on('game:next_round', handleRematchRequest);
 
   socket.on('chat:message', (data: { text: string }) => {
     const room = findRoom(socket.id);
@@ -1227,6 +1307,11 @@ io.on('connection', (socket) => {
     const room = findRoom(socket.id);
     if (!room) return;
     socket.leave(room.code);
+
+    if (room.rematch) {
+      emitRematchDeclined(room);
+      clearRematch(room);
+    }
 
     if (room.status === 'playing') {
       io.to(room.code).emit('game:opponent_disconnected');
@@ -1249,6 +1334,11 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const room = findRoom(socket.id);
     if (!room) return;
+
+    if (room.rematch) {
+      emitRematchDeclined(room);
+      clearRematch(room);
+    }
 
     if (room.status === 'playing' && shouldUseBotReplacement(room)) {
       const playerIndex = room.players.findIndex(p => p.id === socket.id);

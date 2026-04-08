@@ -19,7 +19,7 @@ export function makeBotDecision(
   const base = { bonbona: false, bonbonaTiles: [] as DominoTile[] };
 
   // Check bonbona opportunity
-  const canBonbona = checkBonbona(activeTile, opponentWinPile);
+  const canBonbona = checkBonbona(activeTile, opponentLastCapture);
   let bonbonaResult = { bonbona: false, bonbonaTiles: [] as DominoTile[] };
 
     if (canBonbona && opponentWinPile.length > 0 && opponentLastCaptureGroup.length > 0) {

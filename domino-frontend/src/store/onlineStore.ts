@@ -107,6 +107,8 @@ export const useOnlineStore = create<OnlineState>()(
     {
       name: 'domino-online-session',
       partialize: (state) => ({
+        roomCode: state.roomCode,
+        roomStatus: state.roomStatus,
         lastRoomCode: state.lastRoomCode,
         lastPlayerId: state.lastPlayerId,
       }),

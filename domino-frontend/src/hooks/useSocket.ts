@@ -7,6 +7,29 @@ import { useChatStore } from '@/store/chatStore';
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 
 let socketInstance: Socket | null = null;
+let listenersBound = false;
+let actionGuardLocked = false;
+let actionGuardTimer: ReturnType<typeof setTimeout> | null = null;
+const ACTION_GUARD_TIMEOUT_MS = 1500;
+
+function resetActionGuard() {
+  actionGuardLocked = false;
+  if (actionGuardTimer) {
+    clearTimeout(actionGuardTimer);
+    actionGuardTimer = null;
+  }
+}
+
+function lockActionGuard() {
+  actionGuardLocked = true;
+  if (actionGuardTimer) {
+    clearTimeout(actionGuardTimer);
+  }
+  actionGuardTimer = setTimeout(() => {
+    actionGuardLocked = false;
+    actionGuardTimer = null;
+  }, ACTION_GUARD_TIMEOUT_MS);
+}
 
 function getSocket(): Socket {
   if (!socketInstance) {
@@ -24,7 +47,6 @@ function getSocket(): Socket {
 export function useSocket() {
   const socket = getSocket();
   const initialized = useRef(false);
-  const listenersAdded = useRef(false);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -33,32 +55,18 @@ export function useSocket() {
     if (!socket.connected) socket.connect();
 
     // Only add listeners once per socket instance
-    if (!listenersAdded.current) {
-      listenersAdded.current = true;
+    if (!listenersBound) {
+      listenersBound = true;
 
       // Remove any existing listeners to prevent duplicates
-      socket.removeAllListeners('connect');
-      socket.removeAllListeners('disconnect');
-      socket.removeAllListeners('room:created');
-      socket.removeAllListeners('room:joined');
-      socket.removeAllListeners('room:error');
-      socket.removeAllListeners('room:rejoined');
-      socket.removeAllListeners('room:opponent_joined');
-      socket.removeAllListeners('room:state');
-      socket.removeAllListeners('game:started');
-      socket.removeAllListeners('game:state');
-      socket.removeAllListeners('game:event');
-      socket.removeAllListeners('game:invalid');
-      socket.removeAllListeners('game:opponent_disconnected');
-      socket.removeAllListeners('game:opponent_reconnected');
-      socket.removeAllListeners('game:bot_activated');
-      socket.removeAllListeners('chat:message');
+      socket.removeAllListeners();
 
       socket.on('connect', () => {
         useOnlineStore.getState().setConnected(true);
       });
 
       socket.on('disconnect', () => {
+        resetActionGuard();
         const s = useOnlineStore.getState();
         s.setConnected(false);
         if (s.roomStatus === 'playing') {
@@ -159,6 +167,7 @@ export function useSocket() {
 
       // Full state sync from server after every action
       socket.on('game:state', (data: ServerGameState) => {
+        resetActionGuard();
         useOnlineGameStore.getState().applyServerState(data);
       });
 
@@ -169,6 +178,7 @@ export function useSocket() {
 
       // Validation error from server
       socket.on('game:invalid', (data: { message: string }) => {
+        resetActionGuard();
         useOnlineGameStore.getState().setEvent({ type: 'invalid', message: data.message });
       });
 
@@ -190,6 +200,22 @@ export function useSocket() {
         const s = useOnlineStore.getState();
         s.setOpponentConnected(false);
         s.setBotReplacingOpponent(true);
+      });
+
+      socket.on('game:rematch_request', () => {
+        useOnlineGameStore.getState().setRematchStatus('received');
+      });
+
+      socket.on('game:rematch_accepted', () => {
+        const s = useOnlineGameStore.getState();
+        s.clearRematchStatus();
+        s.clearRematchDeclined();
+      });
+
+      socket.on('game:rematch_declined', () => {
+        const s = useOnlineGameStore.getState();
+        s.clearRematchStatus();
+        s.setRematchDeclined(true);
       });
 
       socket.on('chat:message', (data: { senderName: string; text: string }) => {
@@ -228,6 +254,8 @@ export function useSocket() {
   }, []);
 
   const sendAction = useCallback((data: { type?: string; end?: string; tileIndex?: number; selectedTiles?: [number, number][]; bonbonaTiles?: [number, number][]; bonbona?: boolean }) => {
+    if (actionGuardLocked) return;
+    lockActionGuard();
     socket.emit('game:action', data);
   }, []);
 
@@ -256,8 +284,47 @@ export function useSocket() {
   }, []);
 
   const sendNextRound = useCallback(() => {
-    socket.emit('game:next_round');
+    const s = useOnlineGameStore.getState();
+    if (s.rematchStatus === 'requested') return;
+    s.setRematchStatus('requested');
+    s.clearRematchDeclined();
+    socket.emit('game:rematch_request');
   }, []);
 
-  return { createRoom, joinRoom, rejoinRoom, sendAction, sendDrop, sendChat, leaveRoom, sendNextRound, socket };
+  const requestRematch = useCallback(() => {
+    const s = useOnlineGameStore.getState();
+    if (s.rematchStatus === 'requested') return;
+    s.setRematchStatus('requested');
+    s.clearRematchDeclined();
+    socket.emit('game:rematch_request');
+  }, []);
+
+  const acceptRematch = useCallback(() => {
+    const s = useOnlineGameStore.getState();
+    s.setRematchStatus('requested');
+    s.clearRematchDeclined();
+    socket.emit('game:rematch_accepted');
+  }, []);
+
+  const declineRematch = useCallback(() => {
+    const s = useOnlineGameStore.getState();
+    s.clearRematchStatus();
+    s.clearRematchDeclined();
+    socket.emit('game:rematch_declined');
+  }, []);
+
+  return {
+    createRoom,
+    joinRoom,
+    rejoinRoom,
+    sendAction,
+    sendDrop,
+    sendChat,
+    leaveRoom,
+    sendNextRound,
+    requestRematch,
+    acceptRematch,
+    declineRematch,
+    socket,
+  };
 }

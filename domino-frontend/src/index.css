@@ -168,6 +168,15 @@
   50% { box-shadow: 0 0 30px rgba(255, 215, 0, 0.6); }
 }
 
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); }
+  50% { box-shadow: 0 0 0 8px rgba(255, 215, 0, 0); }
+}
+
+.turn-pulse {
+  animation: pulse 1s infinite;
+}
+
 @keyframes shimmer {
   0% { background-position: -200% center; }
   100% { background-position: 200% center; }

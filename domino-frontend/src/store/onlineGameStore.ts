@@ -67,6 +67,8 @@ export interface OnlineGameState {
   lastEvent: GameEvent | ClassicGameEvent | null;
   myPlayerId: string; // 'player0' or 'player1'
   lastRoundSummary: OnlineLastRoundSummary | null;
+  rematchStatus: RematchStatus;
+  rematchDeclined: boolean;
 
   // Actions (local UI only)
   selectTile: (index: number) => void; // for classic
@@ -79,8 +81,14 @@ export interface OnlineGameState {
   applyServerState: (data: ServerGameState) => void;
   setMyPlayerId: (id: string) => void;
   setEvent: (event: GameEvent | ClassicGameEvent) => void;
+  setRematchStatus: (status: RematchStatus) => void;
+  clearRematchStatus: () => void;
+  setRematchDeclined: (declined: boolean) => void;
+  clearRematchDeclined: () => void;
   resetOnlineGame: () => void;
 }
+
+export type RematchStatus = 'idle' | 'requested' | 'received';
 
 export interface ServerGameState {
   phase: GamePhase;
@@ -162,6 +170,8 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
   lastEvent: null,
   myPlayerId: '',
   lastRoundSummary: null,
+  rematchStatus: 'idle',
+  rematchDeclined: false,
 
   selectTile: (index) => set((s) => ({ selectedTileIndex: index === s.selectedTileIndex ? -1 : index })),
 
@@ -204,6 +214,10 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
   setMyPlayerId: (id) => set({ myPlayerId: id }),
 
   setEvent: (event) => set({ lastEvent: event }),
+  setRematchStatus: (status) => set({ rematchStatus: status }),
+  clearRematchStatus: () => set({ rematchStatus: 'idle' }),
+  setRematchDeclined: (declined) => set({ rematchDeclined: declined }),
+  clearRematchDeclined: () => set({ rematchDeclined: false }),
 
   applyServerState: (data) => {
     const state = get();
@@ -359,6 +373,8 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
       lastEvent: null,
       myPlayerId: '',
       lastRoundSummary: null,
+      rematchStatus: 'idle',
+      rematchDeclined: false,
     });
   },
 }));

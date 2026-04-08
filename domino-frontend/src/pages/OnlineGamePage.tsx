@@ -1,8 +1,11 @@
-﻿import { useState, useEffect, useCallback, useRef } from 'react';
+﻿import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Capacitor } from '@capacitor/core';
 import { useOnlineGameStore } from '@/store/onlineGameStore';
 import { useOnlineStore } from '@/store/onlineStore';
+import { useBackButtonStore } from '@/store/backButtonStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { useSocket } from '@/hooks/useSocket';
 import PlayerHand from '@/components/game/PlayerHand';
 import TableArea from '@/components/game/TableArea';
@@ -11,11 +14,37 @@ import WinPile from '@/components/game/WinPile';
 import GameEffects from '@/components/game/GameEffects';
 import GameTopBar from '@/components/game/GameTopBar';
 import ChatPanel from '@/components/game/ChatPanel';
+import ClassicPlayerZone from '@/components/game/ClassicPlayerZone';
 import { getTileHandValue, isJokerTile, isWaladTile } from '@/utils/gameEngine';
 import { canPlayTile, getPlayableEnds, hasPlayableTile } from '@/utils/classicGameEngine';
 import { playDropSound, playCaptureSound, playSelectSound } from '@/utils/soundEffects';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { ArrowLeft, ArrowRight, Layers, SkipForward, LogOut, WifiOff } from 'lucide-react';
 import { clearScoreSnapshot, saveScoreSnapshot } from '@/utils/scoreSnapshot';
+import type { DominoTile } from '@/types/contracts';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+
+const BOT_AVATARS = ['🦁', '🐉', '⚡', '🎯'];
+
+type PlayerActionState = {
+  action: 'play' | 'draw' | 'pass' | null;
+  tile?: DominoTile;
+};
+
+type DrawAnim = {
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  key: number;
+};
 
 function DotPattern({ count }: { count: number }) {
   const positions: Record<number, [number, number][]> = {
@@ -231,10 +260,61 @@ function ReconnectOverlay({
   );
 }
 
+function ExitConfirmDialog({
+  open,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <AlertDialog open={open} onOpenChange={(next) => (next ? null : onCancel())}>
+      <AlertDialogContent dir="rtl" className="font-arabic">
+        <AlertDialogHeader className="text-center sm:text-right">
+          <AlertDialogTitle className="font-arabic">تأكيد الخروج</AlertDialogTitle>
+          <AlertDialogDescription className="font-arabic">
+            هل تريد الخروج من اللعبة؟
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="sm:justify-center sm:space-x-reverse sm:space-x-2">
+          <AlertDialogCancel onClick={onCancel} className="font-arabic">
+            إلغاء
+          </AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm} className="font-arabic">
+            خروج
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+// ──────────────────────────────────────────────
+//          الدالة الجديدة المضافة
+// ──────────────────────────────────────────────
+function needsEndChoice(
+  tile: DominoTile,
+  chainEnds: [number, number],
+  chainLength: number
+): boolean {
+  if (chainLength === 0) return false;
+  const ends = getPlayableEnds(tile, chainEnds);
+  if (ends.length < 2) return false;
+  if (chainEnds[0] === chainEnds[1]) return false;
+  return true;
+}
+
+// ──────────────────────────────────────────────
+//          المكون الرئيسي
+// ──────────────────────────────────────────────
 export default function OnlineGamePage() {
   const navigate = useNavigate();
   const state = useOnlineGameStore();
   const { connected, gameVariant } = useOnlineStore();
+  const roomStatus = useOnlineStore(s => s.roomStatus);
+  const setShowExitConfirm = useBackButtonStore(s => s.setShowExitConfirm);
   const isClassic = gameVariant === 'classic' || state.variant === 'classic';
   const redirectRef = useRef(false);
   const idleRedirectRef = useRef(false);
@@ -252,6 +332,41 @@ export default function OnlineGamePage() {
   }, [state.phase, state.myPlayerId, navigate]);
 
   useEffect(() => {
+    if (roomStatus === 'idle') {
+      navigate('/online', { replace: true });
+    }
+  }, [roomStatus, navigate]);
+
+  useEffect(() => {
+    setShowExitConfirm(false);
+  }, [setShowExitConfirm]);
+
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) return;
+
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault();
+      window.history.pushState(null, '', window.location.href);
+      setShowExitConfirm(true);
+    };
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+      setShowExitConfirm(true);
+    };
+
+    window.history.pushState(null, '', window.location.href);
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [setShowExitConfirm]);
+
+  useEffect(() => {
     if (!phaseTerminal) {
       redirectRef.current = false;
       return;
@@ -261,24 +376,24 @@ export default function OnlineGamePage() {
 
     const snapshot = isClassic
       ? {
-        variant: 'classic' as const,
-        phase: state.phase === 'game_over' ? 'game_over' : 'round_end',
-        classicPlayers: state.classicPlayers,
-        myPlayerId: state.myPlayerId,
-        targetScore: state.targetScore,
-        roundNumber: state.roundNumber,
-      }
+          variant: 'classic' as const,
+          phase: state.phase === 'game_over' ? 'game_over' : 'round_end',
+          classicPlayers: state.classicPlayers,
+          myPlayerId: state.myPlayerId,
+          targetScore: state.targetScore,
+          roundNumber: state.roundNumber,
+        }
       : {
-        variant: 'koutchina' as const,
-        phase: state.phase === 'game_over' ? 'game_over' : 'round_end',
-        me: state.me,
-        opponent: state.opponent,
-        targetScore: state.targetScore,
-        roundNumber: state.roundNumber,
-      };
+          variant: 'koutchina' as const,
+          phase: state.phase === 'game_over' ? 'game_over' : 'round_end',
+          me: state.me,
+          opponent: state.opponent,
+          targetScore: state.targetScore,
+          roundNumber: state.roundNumber,
+        };
 
     saveScoreSnapshot('scoreSnapshot:online', snapshot);
-    navigate('/online/score', { state: { lastRoundSummary: snapshot } });
+    navigate('/online/score', { state: { lastRoundSummary: snapshot }, replace: true });
   }, [
     phaseTerminal,
     isClassic,
@@ -329,6 +444,8 @@ function OnlineKoutchinaGame({ connected }: { connected: boolean }) {
   }));
   const { sendAction, sendDrop, leaveRoom, rejoinRoom } = useSocket();
   const [invalidPulse, setInvalidPulse] = useState(false);
+  const showExitConfirm = useBackButtonStore(s => s.showExitConfirm);
+  const setShowExitConfirm = useBackButtonStore(s => s.setShowExitConfirm);
 
   useEffect(() => {
     if (state.lastEvent?.type === 'invalid') {
@@ -382,11 +499,16 @@ function OnlineKoutchinaGame({ connected }: { connected: boolean }) {
   }, [canAct, state.selectedTableTiles, state.selectedBonbonaTiles, sendAction]);
 
   const handleExit = useCallback(() => {
+    setShowExitConfirm(false);
     clearScoreSnapshot('scoreSnapshot:online');
     leaveRoom();
     state.resetOnlineGame();
     navigate('/home');
-  }, [leaveRoom, navigate]);
+  }, [leaveRoom, navigate, setShowExitConfirm]);
+
+  const handleCancelExit = useCallback(() => {
+    setShowExitConfirm(false);
+  }, [setShowExitConfirm]);
 
   const normalizedLastRoomCode = (lastRoomCode || '').trim().toUpperCase();
   const hasReconnectInfo = /^[A-Z0-9]{6}$/.test(normalizedLastRoomCode) && !!lastPlayerId;
@@ -441,6 +563,11 @@ function OnlineKoutchinaGame({ connected }: { connected: boolean }) {
         roomCode={normalizedLastRoomCode}
         onRejoin={handleRejoin}
         onLeave={handleExit}
+      />
+      <ExitConfirmDialog
+        open={showExitConfirm}
+        onConfirm={handleExit}
+        onCancel={handleCancelExit}
       />
 
       <GameTopBar
@@ -562,6 +689,19 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
   const { sendAction, leaveRoom, rejoinRoom } = useSocket();
   const [showEndChoice, setShowEndChoice] = useState(false);
   const [pendingTileIndex, setPendingTileIndex] = useState<number | null>(null);
+  const { playerAvatar } = useSettingsStore();
+  const isMobile = useIsMobile();
+  const [actionMap, setActionMap] = useState<Record<string, PlayerActionState>>({});
+  const [drawAnim, setDrawAnim] = useState<DrawAnim | null>(null);
+  const actionTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const boardRef = useRef<HTMLDivElement>(null);
+  const boneyardRef = useRef<HTMLDivElement>(null);
+  const topZoneRef = useRef<HTMLDivElement>(null);
+  const rightZoneRef = useRef<HTMLDivElement>(null);
+  const leftZoneRef = useRef<HTMLDivElement>(null);
+  const bottomZoneRef = useRef<HTMLDivElement>(null);
+  const showExitConfirm = useBackButtonStore(s => s.showExitConfirm);
+  const setShowExitConfirm = useBackButtonStore(s => s.setShowExitConfirm);
 
   useEffect(() => {
     if (state.lastEvent?.type === 'invalid') {
@@ -577,14 +717,46 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
     }
   }, [state.lastEvent]);
 
+  useEffect(() => {
+    const event = state.lastEvent;
+    if (!event || event.type === 'invalid' || event.type === 'block') return;
+    if (event.type !== 'play' && event.type !== 'draw' && event.type !== 'pass') return;
+
+    const player = state.classicPlayers[event.playerIndex];
+    if (!player) return;
+    const playerId = player.id;
+
+    setActionMap(prev => ({
+      ...prev,
+      [playerId]: {
+        action: event.type,
+        tile: event.type === 'play' ? event.tile : undefined,
+      },
+    }));
+
+    if (actionTimers.current[playerId]) {
+      clearTimeout(actionTimers.current[playerId]);
+    }
+    actionTimers.current[playerId] = setTimeout(() => {
+      setActionMap(prev => ({
+        ...prev,
+        [playerId]: { action: null },
+      }));
+    }, 2000);
+  }, [state.lastEvent, state.classicPlayers]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(actionTimers.current).forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
+
   const currentPlayer = state.classicPlayers.find(p => p.id === state.currentPlayerId);
   const isMyTurn = state.isMyTurn && state.phase === 'playing';
   const myHand = state.myHandClassic;
   const canDraw = isMyTurn && state.boneyardCount > 0 && !hasPlayableTile(myHand, state.chainEnds);
   const canPass = isMyTurn && state.boneyardCount === 0 && !hasPlayableTile(myHand, state.chainEnds);
   const showTimer = state.timerEnabled && !!state.turnDeadline && state.phase === 'playing' && state.classicPlayers.length === 2;
-
-  const otherPlayers = state.classicPlayers.filter(p => p.id !== state.myPlayerId);
 
   let statusText: string | undefined;
   let statusPulse = false;
@@ -597,6 +769,85 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
     }
   }
 
+  const playerCount = state.classicPlayers.length;
+  const myIndex = state.classicPlayers.findIndex(p => p.id === state.myPlayerId);
+  const rotatedPlayers = useMemo(() => {
+    if (playerCount === 0) return [];
+    const start = myIndex >= 0 ? myIndex : 0;
+    return [...state.classicPlayers.slice(start), ...state.classicPlayers.slice(0, start)];
+  }, [state.classicPlayers, playerCount, myIndex]);
+
+  const bottomSeat = rotatedPlayers[0];
+  const bottomSeatIndex = bottomSeat ? 0 : null;
+
+  const rightSeat = !isMobile && playerCount >= 3 ? rotatedPlayers[1] : null;
+  const rightSeatIndex = !isMobile && rightSeat ? 1 : null;
+  const topSeat = !isMobile ? (playerCount === 2 ? rotatedPlayers[1] : rotatedPlayers[2] || null) : null;
+  const topSeatIndex = !isMobile && topSeat ? (playerCount === 2 ? 1 : 2) : null;
+  const leftSeat = !isMobile && playerCount >= 4 ? rotatedPlayers[3] : null;
+  const leftSeatIndex = !isMobile && leftSeat ? 3 : null;
+
+  const topBots = isMobile ? rotatedPlayers.slice(1) : [];
+
+  const getCardCount = (seat: { id: string; handCount: number } | null) =>
+    seat ? (seat.id === state.myPlayerId ? myHand.length : seat.handCount) : 0;
+
+  const getAction = (seat: { id: string } | null) => (seat ? actionMap[seat.id] : undefined);
+  const seatById = useMemo(() => {
+    const map: Record<string, 'bottom' | 'right' | 'top' | 'left'> = {};
+    if (bottomSeat) map[bottomSeat.id] = 'bottom';
+    if (isMobile) {
+      topBots.forEach(seat => {
+        if (seat) map[seat.id] = 'top';
+      });
+      return map;
+    }
+    if (rightSeat) map[rightSeat.id] = 'right';
+    if (topSeat) map[topSeat.id] = 'top';
+    if (leftSeat) map[leftSeat.id] = 'left';
+    return map;
+  }, [bottomSeat, rightSeat, topSeat, leftSeat, isMobile, topBots]);
+
+  const refBySeat = {
+    bottom: bottomZoneRef,
+    right: rightZoneRef,
+    top: topZoneRef,
+    left: leftZoneRef,
+  };
+
+  const avatarForIndex = (seatIndex: number) =>
+    seatIndex === 0 ? playerAvatar : BOT_AVATARS[(seatIndex - 1 + BOT_AVATARS.length) % BOT_AVATARS.length];
+
+  useEffect(() => {
+    const event = state.lastEvent;
+    if (!event || event.type !== 'draw') return;
+    const player = state.classicPlayers[event.playerIndex];
+    if (!player) return;
+    const seat = seatById[player.id];
+    if (!seat) return;
+    const targetRef = refBySeat[seat];
+    if (!targetRef?.current || !boneyardRef.current || !boardRef.current) return;
+
+    const rootRect = boardRef.current.getBoundingClientRect();
+    const fromRect = boneyardRef.current.getBoundingClientRect();
+    const toRect = targetRef.current.getBoundingClientRect();
+
+    const from = {
+      x: fromRect.left - rootRect.left + fromRect.width / 2,
+      y: fromRect.top - rootRect.top + fromRect.height / 2,
+    };
+    const to = {
+      x: toRect.left - rootRect.left + toRect.width / 2,
+      y: toRect.top - rootRect.top + toRect.height / 2,
+    };
+
+    setDrawAnim({ from, to, key: Date.now() });
+  }, [state.lastEvent, state.classicPlayers, seatById]);
+
+  // ──────────────────────────────────────────────
+  //          الدوال المعدلة / الجديدة
+  // ──────────────────────────────────────────────
+
   const handleTileSelect = (index: number) => {
     if (!isMyTurn) return;
     const tile = myHand[index];
@@ -607,18 +858,22 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
     const playable = canPlayTile(tile, state.chainEnds);
     state.selectTile(index);
     if (wasSelected) return;
-
     if (!playable) return;
 
     const ends = getPlayableEnds(tile, state.chainEnds);
-    if (ends.length === 1 || state.chain.length === 0) {
-      setTimeout(() => {
-        playDropSound();
-        sendAction({ type: 'play', tileIndex: index, end: ends[0] });
-      }, 150);
-    } else {
+
+    if (needsEndChoice(tile, state.chainEnds, state.chain.length)) {
+      // يحتاج اختيار → ننتظر نقر اللاعب على أحد طرفي السلسلة
       setPendingTileIndex(index);
       setShowEndChoice(true);
+    } else {
+      // لا يحتاج اختيار → نلعب تلقائياً (عشوائي إذا كان هناك أكثر من طرف)
+      setTimeout(() => {
+        playDropSound();
+        const randomEnd = ends[Math.floor(Math.random() * ends.length)] as 'left' | 'right';
+        sendAction({ type: 'play', tileIndex: index, end: randomEnd });
+        setPendingTileIndex(null);
+      }, 150);
     }
   };
 
@@ -627,6 +882,12 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
     playDropSound();
     sendAction({ type: 'play', tileIndex: pendingTileIndex, end });
     setShowEndChoice(false);
+    setPendingTileIndex(null);
+  };
+
+  const handleCancelEndChoice = () => {
+    setShowEndChoice(false);
+    state.selectTile(-1);
     setPendingTileIndex(null);
   };
 
@@ -640,11 +901,16 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
   };
 
   const handleExit = () => {
+    setShowExitConfirm(false);
     clearScoreSnapshot('scoreSnapshot:online');
     leaveRoom();
     state.resetOnlineGame();
     navigate('/home');
   };
+
+  const handleCancelExit = useCallback(() => {
+    setShowExitConfirm(false);
+  }, [setShowExitConfirm]);
 
   const normalizedLastRoomCode = (lastRoomCode || '').trim().toUpperCase();
   const hasReconnectInfo = /^[A-Z0-9]{6}$/.test(normalizedLastRoomCode) && !!lastPlayerId;
@@ -658,7 +924,7 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
   }, [hasReconnectInfo, lastPlayerId, playerName, normalizedLastRoomCode, rejoinRoom]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col overflow-hidden relative" dir="rtl">
+    <div ref={boardRef} className="min-h-screen bg-background flex flex-col overflow-hidden relative" dir="rtl">
       <ChatPanel />
       <OpponentConnectionBanner />
       <ReconnectOverlay
@@ -666,6 +932,11 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
         roomCode={normalizedLastRoomCode}
         onRejoin={handleRejoin}
         onLeave={handleExit}
+      />
+      <ExitConfirmDialog
+        open={showExitConfirm}
+        onConfirm={handleExit}
+        onCancel={handleCancelExit}
       />
 
       {/* Event overlay */}
@@ -775,97 +1046,141 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
         </motion.div>
       )}
 
-      {/* Opponent hands (face down) */}
-      <div className="flex items-center justify-center gap-4 px-4 py-2 flex-wrap">
-        {otherPlayers.map((op) => (
-          <div key={op.id} className="flex flex-col items-center gap-1">
-            <div className="flex items-center gap-0.5">
-              {Array.from({ length: Math.min(op.handCount, 10) }).map((_, hi) => (
-                <motion.div
-                  key={hi}
-                  className="w-10 h-20 rounded-sm border border-border/50 diamond-pattern"
-                  style={{ background: 'hsl(var(--tile-back))' }}
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ delay: hi * 0.02 }}
-                />
-              ))}
-              {op.handCount > 10 && (
-                <span className="text-[9px] font-mono text-muted-foreground/60">+{op.handCount - 10}</span>
-              )}
-            </div>
-            <span className="text-[10px] font-arabic text-muted-foreground">
-              {op.name} ({op.handCount})
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* Chain area + Boneyard */}
-      <div className="flex-1 flex mx-2 my-1 gap-1.5 overflow-hidden">
-        {state.boneyardCount > 0 && (
-          <div className="flex flex-col items-center gap-1 py-2 px-1">
-            <div className="flex flex-col items-center gap-0.5 max-h-full overflow-y-auto scrollbar-hide">
-              {Array.from({ length: Math.min(6, state.boneyardCount) }).map((_, bi) => (
-                <motion.div
-                  key={bi}
-                  className="w-6 h-9 rounded-sm border border-border/50 diamond-pattern flex-shrink-0"
-                  style={{ background: 'hsl(var(--tile-back))' }}
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ delay: bi * 0.03 }}
-                />
-              ))}
-              {state.boneyardCount > 6 && (
-                <span className="text-[9px] font-mono text-muted-foreground/60">+{state.boneyardCount - 6}</span>
-              )}
-            </div>
-            <div className="flex items-center gap-1 bg-card/80 rounded-lg px-2 py-0.5 border border-border/50">
-              <Layers className="w-3 h-3 text-muted-foreground" />
-              <span className="text-[10px] font-mono text-muted-foreground">{state.boneyardCount}</span>
-            </div>
-          </div>
+      <AnimatePresence>
+        {drawAnim && (
+          <motion.div
+            key={drawAnim.key}
+            className="absolute z-40 rounded-sm border border-border/60 diamond-pattern"
+            style={{ width: 18, height: 32, background: 'hsl(var(--tile-back))' }}
+            initial={{ x: drawAnim.from.x - 9, y: drawAnim.from.y - 16, opacity: 1 }}
+            animate={{ x: drawAnim.to.x - 9, y: drawAnim.to.y - 16, opacity: 0 }}
+            transition={{ duration: 0.4 }}
+            onAnimationComplete={() => setDrawAnim(null)}
+          />
         )}
+      </AnimatePresence>
 
-        <div className="flex-1 felt-bg rounded-xl flex flex-col relative overflow-hidden" style={{ minHeight: 0 }}>
-          <ChainArea chain={state.chain} chainEnds={state.chainEnds} />
+      {/* Board layout */}
+      <div className="flex-1 flex flex-col overflow-hidden px-2 pb-2">
+        <div className="flex items-center justify-center pt-2">
+          {isMobile ? (
+            <div ref={topZoneRef} className="flex items-center justify-center gap-2 flex-wrap">
+              {topBots.map((seat, idx) => {
+                const seatIndex = idx + 1;
+                return (
+                  <ClassicPlayerZone
+                    key={seat.id}
+                    position="top"
+                    avatar={avatarForIndex(seatIndex)}
+                    name={seat.name}
+                    cardCount={getCardCount(seat)}
+                    isCurrentTurn={seat.id === state.currentPlayerId}
+                    lastAction={getAction(seat)?.action ?? null}
+                    lastPlayedTile={getAction(seat)?.tile}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            topSeat && topSeatIndex !== null && (
+              <ClassicPlayerZone
+                ref={topZoneRef}
+                position="top"
+                avatar={avatarForIndex(topSeatIndex)}
+                name={topSeat.name}
+                cardCount={getCardCount(topSeat)}
+                isCurrentTurn={topSeat.id === state.currentPlayerId}
+                lastAction={getAction(topSeat)?.action ?? null}
+                lastPlayedTile={getAction(topSeat)?.tile}
+              />
+            )
+          )}
+        </div>
 
-          <AnimatePresence>
-            {showEndChoice && pendingTileIndex !== null && (
-              <motion.div
-                className="absolute inset-0 bg-background/60 backdrop-blur-sm z-30 flex items-center justify-center"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setShowEndChoice(false)}
-              >
-                <motion.div
-                  className="flex gap-4"
-                  initial={{ scale: 0.8 }}
-                  animate={{ scale: 1 }}
-                  exit={{ scale: 0.8 }}
-                  onClick={e => e.stopPropagation()}
-                >
-                  <motion.button
-                    className="flex flex-col items-center gap-2 px-6 py-4 bg-card border border-primary/30 rounded-2xl hover:border-primary transition-colors"
-                    onClick={() => handlePlayEnd('right')}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <ArrowRight className="w-6 h-6 text-primary" />
-                    <span className="text-sm font-arabic text-foreground">يمين</span>
-                  </motion.button>
-                  <motion.button
-                    className="flex flex-col items-center gap-2 px-6 py-4 bg-card border border-primary/30 rounded-2xl hover:border-primary transition-colors"
-                    onClick={() => handlePlayEnd('left')}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <ArrowLeft className="w-6 h-6 text-primary" />
-                    <span className="text-sm font-arabic text-foreground">شمال</span>
-                  </motion.button>
-                </motion.div>
-              </motion.div>
+        <div className="flex-1 flex items-stretch gap-2 mt-2">
+          {leftSeat && leftSeatIndex !== null && (
+            <div className="flex items-center justify-center">
+              <ClassicPlayerZone
+                ref={leftZoneRef}
+                position="left"
+                avatar={avatarForIndex(leftSeatIndex)}
+                name={leftSeat.name}
+                cardCount={getCardCount(leftSeat)}
+                isCurrentTurn={leftSeat.id === state.currentPlayerId}
+                lastAction={getAction(leftSeat)?.action ?? null}
+                lastPlayedTile={getAction(leftSeat)?.tile}
+              />
+            </div>
+          )}
+
+          <div
+            className="flex-1 felt-bg rounded-xl flex flex-col relative overflow-hidden"
+            style={{ minHeight: 0 }}
+            onClick={showEndChoice ? handleCancelEndChoice : undefined}
+          >
+            {state.boneyardCount > 0 && (
+              <div ref={boneyardRef} className="absolute left-2 top-2 flex flex-col items-center gap-1 z-10">
+                <div className="flex flex-col items-center gap-0.5 max-h-full overflow-y-auto scrollbar-hide">
+                  {Array.from({ length: Math.min(6, state.boneyardCount) }).map((_, bi) => (
+                    <motion.div
+                      key={bi}
+                      className="w-6 h-9 rounded-sm border border-border/50 diamond-pattern flex-shrink-0"
+                      style={{ background: 'hsl(var(--tile-back))' }}
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ delay: bi * 0.03 }}
+                    />
+                  ))}
+                  {state.boneyardCount > 6 && (
+                    <span className="text-[9px] font-mono text-muted-foreground/60">+{state.boneyardCount - 6}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 bg-card/80 rounded-lg px-2 py-0.5 border border-border/50">
+                  <Layers className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-[10px] font-mono text-muted-foreground">{state.boneyardCount}</span>
+                </div>
+              </div>
             )}
-          </AnimatePresence>
+
+            <ChainArea
+              chain={state.chain}
+              chainEnds={state.chainEnds}
+              highlightEnds={showEndChoice}
+              onLeftEndClick={showEndChoice ? () => handlePlayEnd('left') : undefined}
+              onRightEndClick={showEndChoice ? () => handlePlayEnd('right') : undefined}
+            />
+          </div>
+
+          {rightSeat && rightSeatIndex !== null && (
+            <div className="flex items-center justify-center">
+              <ClassicPlayerZone
+                ref={rightZoneRef}
+                position="right"
+                avatar={avatarForIndex(rightSeatIndex)}
+                name={rightSeat.name}
+                cardCount={getCardCount(rightSeat)}
+                isCurrentTurn={rightSeat.id === state.currentPlayerId}
+                lastAction={getAction(rightSeat)?.action ?? null}
+                lastPlayedTile={getAction(rightSeat)?.tile}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-center mt-2">
+          {bottomSeat && bottomSeatIndex !== null && (
+            <ClassicPlayerZone
+              ref={bottomZoneRef}
+              position="bottom"
+              avatar={avatarForIndex(bottomSeatIndex)}
+              name={bottomSeat.name}
+              cardCount={getCardCount(bottomSeat)}
+              isCurrentTurn={bottomSeat.id === state.currentPlayerId}
+              lastAction={getAction(bottomSeat)?.action ?? null}
+              lastPlayedTile={getAction(bottomSeat)?.tile}
+              showHand={false}
+            />
+          )}
         </div>
       </div>
 
@@ -940,7 +1255,3 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
     </div>
   );
 }
-
-
-
-

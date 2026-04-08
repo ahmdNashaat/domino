@@ -13,6 +13,17 @@ import {
   playScoreRevealSound,
 } from '@/utils/soundEffects';
 import PageShell from '@/components/PageShell';
+import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 type KoutchinaSnapshot = Extract<OnlineLastRoundSummary, { variant: 'koutchina' }>;
 type ClassicSnapshot = Extract<OnlineLastRoundSummary, { variant: 'classic' }>;
@@ -24,13 +35,16 @@ interface NavState {
 const ONLINE_SNAPSHOT_KEY = 'scoreSnapshot:online';
 
 export default function OnlineScorePage() {
+  const navigate = useNavigate();
   const location = useLocation();
+  const phase = useOnlineGameStore(s => s.phase);
   const storeSnapshot = useOnlineGameStore(s => s.lastRoundSummary);
   const navSnapshot = (location.state as NavState | null)?.lastRoundSummary ?? null;
   const sessionSnapshot = useMemo(() => loadScoreSnapshot<OnlineLastRoundSummary>(ONLINE_SNAPSHOT_KEY), []);
   const snapshot = navSnapshot ?? storeSnapshot ?? sessionSnapshot;
   const storeVariant = useOnlineStore(s => s.gameVariant);
   const stateVariant = useOnlineGameStore(s => s.variant);
+  const roomStatus = useOnlineStore(s => s.roomStatus);
   const resolvedVariant = snapshot?.variant ?? (storeVariant === 'classic' || stateVariant === 'classic' ? 'classic' : 'koutchina');
 
   useEffect(() => {
@@ -39,10 +53,34 @@ export default function OnlineScorePage() {
     }
   }, [snapshot]);
 
+  useEffect(() => {
+    if (phase === 'idle' && roomStatus !== 'playing') {
+      navigate('/online', { replace: true });
+    }
+  }, [phase, roomStatus, navigate]);
+
   if (resolvedVariant === 'classic') {
     return <OnlineClassicScorePage navSnapshot={snapshot?.variant === 'classic' ? snapshot : null} />;
   }
   return <OnlineKoutchinaScorePage navSnapshot={snapshot?.variant === 'koutchina' ? snapshot : null} />;
+}
+
+function ScoreFallback({ onRooms, onHome }: { onRooms: () => void; onHome: () => void }) {
+  return (
+    <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
+      <div className="flex flex-col items-center justify-center h-[70vh] gap-4 text-center">
+        <p className="text-muted-foreground font-arabic">انتهت الجلسة أو لا توجد لعبة نشطة</p>
+        <div className="flex flex-col items-center gap-2 w-full max-w-xs">
+          <Button onClick={onRooms} className="w-full font-arabic">
+            العودة للغرف
+          </Button>
+          <Button variant="ghost" onClick={onHome} className="w-full font-arabic">
+            الرئيسية
+          </Button>
+        </div>
+      </div>
+    </PageShell>
+  );
 }
 
 function OnlineKoutchinaScorePage({ navSnapshot }: { navSnapshot: KoutchinaSnapshot | null }) {
@@ -52,14 +90,19 @@ function OnlineKoutchinaScorePage({ navSnapshot }: { navSnapshot: KoutchinaSnaps
   const opponent = useOnlineGameStore(s => s.opponent);
   const targetScore = useOnlineGameStore(s => s.targetScore) || 600;
   const roundNumber = useOnlineGameStore(s => s.roundNumber);
+  const maxPlayers = useOnlineStore(s => s.maxPlayers);
   const resetOnlineGame = useOnlineGameStore(s => s.resetOnlineGame);
   const storeSummary = useOnlineGameStore(s => s.lastRoundSummary);
   const koutchinaSnapshot = navSnapshot ?? (storeSummary?.variant === 'koutchina' ? storeSummary : null);
-  const { leaveRoom, sendNextRound } = useSocket();
+  const rematchStatus = useOnlineGameStore(s => s.rematchStatus);
+  const rematchDeclined = useOnlineGameStore(s => s.rematchDeclined);
+  const clearRematchDeclined = useOnlineGameStore(s => s.clearRematchDeclined);
+  const { leaveRoom, requestRematch, acceptRematch, declineRematch } = useSocket();
+  const waitingLabel = maxPlayers > 2 ? 'في انتظار باقي اللاعبين…' : 'في انتظار خصمك…';
 
   const handleNextRound = () => {
     clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
-    sendNextRound();
+    requestRematch();
   };
 
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
@@ -122,11 +165,19 @@ function OnlineKoutchinaScorePage({ navSnapshot }: { navSnapshot: KoutchinaSnaps
     if (phase === 'playing') {
       const snapshotRound = koutchinaSnapshot?.roundNumber ?? 0;
       if (!koutchinaSnapshot || roundNumber > snapshotRound) {
-        navigate('/online/game');
+        navigate('/online/game', { replace: true });
       }
     }
   }, [phase, roundNumber, koutchinaSnapshot, navigate]);
 
+  useEffect(() => {
+    if (!rematchDeclined) return;
+    clearRematchDeclined();
+    clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
+    leaveRoom();
+    resetOnlineGame();
+    navigate('/home');
+  }, [rematchDeclined, clearRematchDeclined, leaveRoom, resetOnlineGame, navigate]);
 
   const handleGoHome = () => {
     clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
@@ -135,20 +186,15 @@ function OnlineKoutchinaScorePage({ navSnapshot }: { navSnapshot: KoutchinaSnaps
     navigate('/home');
   };
 
+  const handleGoRooms = () => {
+    clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
+    leaveRoom();
+    resetOnlineGame();
+    navigate('/online', { replace: true });
+  };
+
   if (!scoreReady) {
-    return (
-      <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <p className="text-muted-foreground font-arabic">لا يوجد ملخص للجولة</p>
-          <button
-            onClick={handleGoHome}
-            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-arabic font-bold"
-          >
-            العودة للرئيسية
-          </button>
-        </div>
-      </PageShell>
-    );
+    return <ScoreFallback onRooms={handleGoRooms} onHome={handleGoHome} />;
   }
 
 
@@ -295,7 +341,7 @@ function OnlineKoutchinaScorePage({ navSnapshot }: { navSnapshot: KoutchinaSnaps
             <PlayerScore name={displayMe?.name || 'أنا'} score={pCumScore} color="primary" isPlayer />
           </div>
 
-          <div className="relative h-4 bg-secondary rounded-full overflow-hidden border border-border">
+          <div dir="ltr" className="relative h-4 bg-secondary rounded-full overflow-hidden border border-border">
             <motion.div
               className="absolute left-0 top-0 h-full rounded-full bg-destructive"
               initial={{ width: 0 }}
@@ -321,12 +367,13 @@ function OnlineKoutchinaScorePage({ navSnapshot }: { navSnapshot: KoutchinaSnaps
           {!isGameOver && (
             <motion.button
               onClick={handleNextRound}
-              className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-primary text-primary-foreground rounded-xl font-arabic font-bold hover:bg-primary/90"
+              disabled={rematchStatus === 'requested'}
+              className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-primary text-primary-foreground rounded-xl font-arabic font-bold hover:bg-primary/90 disabled:opacity-60 disabled:pointer-events-none"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
               <RotateCcw className="w-4 h-4" />
-              جولة أخرى
+              {rematchStatus === 'requested' ? waitingLabel : 'جولة أخرى'}
             </motion.button>
           )}
           <motion.button
@@ -340,6 +387,11 @@ function OnlineKoutchinaScorePage({ navSnapshot }: { navSnapshot: KoutchinaSnaps
           </motion.button>
         </motion.div>
       </motion.div>
+      <RematchDialog
+        open={rematchStatus === 'received'}
+        onAccept={acceptRematch}
+        onDecline={declineRematch}
+      />
     </PageShell>
   );
 }
@@ -351,10 +403,15 @@ function OnlineClassicScorePage({ navSnapshot }: { navSnapshot: ClassicSnapshot 
   const targetScore = useOnlineGameStore(s => s.targetScore) || 100;
   const myId = useOnlineGameStore(s => s.myPlayerId);
   const roundNumber = useOnlineGameStore(s => s.roundNumber);
+  const maxPlayers = useOnlineStore(s => s.maxPlayers);
   const resetOnlineGame = useOnlineGameStore(s => s.resetOnlineGame);
   const storeSummary = useOnlineGameStore(s => s.lastRoundSummary);
   const classicSnapshot = navSnapshot ?? (storeSummary?.variant === 'classic' ? storeSummary : null);
-  const { leaveRoom, sendNextRound } = useSocket();
+  const rematchStatus = useOnlineGameStore(s => s.rematchStatus);
+  const rematchDeclined = useOnlineGameStore(s => s.rematchDeclined);
+  const clearRematchDeclined = useOnlineGameStore(s => s.clearRematchDeclined);
+  const { leaveRoom, requestRematch, acceptRematch, declineRematch } = useSocket();
+  const waitingLabel = maxPlayers > 2 ? 'في انتظار باقي اللاعبين…' : 'في انتظار خصمك…';
 
   const isValidPhase = phase === 'round_end' || phase === 'game_over';
   const scoreReady = isValidPhase || !!classicSnapshot;
@@ -411,10 +468,19 @@ function OnlineClassicScorePage({ navSnapshot }: { navSnapshot: ClassicSnapshot 
     if (phase === 'playing') {
       const snapshotRound = classicSnapshot?.roundNumber ?? 0;
       if (!classicSnapshot || roundNumber > snapshotRound) {
-        navigate('/online/game');
+        navigate('/online/game', { replace: true });
       }
     }
   }, [phase, roundNumber, classicSnapshot, navigate]);
+
+  useEffect(() => {
+    if (!rematchDeclined) return;
+    clearRematchDeclined();
+    clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
+    leaveRoom();
+    resetOnlineGame();
+    navigate('/home');
+  }, [rematchDeclined, clearRematchDeclined, leaveRoom, resetOnlineGame, navigate]);
 
   const handleGoHome = () => {
     clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
@@ -423,41 +489,24 @@ function OnlineClassicScorePage({ navSnapshot }: { navSnapshot: ClassicSnapshot 
     navigate('/home');
   };
 
+  const handleGoRooms = () => {
+    clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
+    leaveRoom();
+    resetOnlineGame();
+    navigate('/online', { replace: true });
+  };
+
   if (!scoreReady) {
-    return (
-      <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <p className="text-muted-foreground font-arabic">لا يوجد ملخص للجولة</p>
-          <button
-            onClick={handleGoHome}
-            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-arabic font-bold"
-          >
-            العودة للرئيسية
-          </button>
-        </div>
-      </PageShell>
-    );
+    return <ScoreFallback onRooms={handleGoRooms} onHome={handleGoHome} />;
   }
 
   if (!hasPlayers) {
-    return (
-      <PageShell maxWidth="lg" className="bg-background flex items-center justify-center" dir="rtl">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <p className="text-muted-foreground font-arabic">لا يوجد ملخص للجولة</p>
-          <button
-            onClick={handleGoHome}
-            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-arabic font-bold"
-          >
-            العودة للرئيسية
-          </button>
-        </div>
-      </PageShell>
-    );
+    return <ScoreFallback onRooms={handleGoRooms} onHome={handleGoHome} />;
   }
 
   const handleNextRound = () => {
     clearScoreSnapshot(ONLINE_SNAPSHOT_KEY);
-    sendNextRound();
+    requestRematch();
   };
 
   return (
@@ -583,11 +632,12 @@ function OnlineClassicScorePage({ navSnapshot }: { navSnapshot: ClassicSnapshot 
             <>
               <motion.button
                 onClick={handleNextRound}
-                className="flex-1 flex items-center justify-center gap-2 py-3.5 gold-gradient text-primary-foreground rounded-xl font-arabic font-bold gold-glow"
+                disabled={rematchStatus === 'requested'}
+                className="flex-1 flex items-center justify-center gap-2 py-3.5 gold-gradient text-primary-foreground rounded-xl font-arabic font-bold gold-glow disabled:opacity-60 disabled:pointer-events-none"
                 whileTap={{ scale: 0.98 }}
               >
                 <RotateCcw className="w-4 h-4" />
-                جولة جديدة
+                {rematchStatus === 'requested' ? waitingLabel : 'جولة جديدة'}
               </motion.button>
               <motion.button
                 onClick={handleGoHome}
@@ -609,7 +659,33 @@ function OnlineClassicScorePage({ navSnapshot }: { navSnapshot: ClassicSnapshot 
           )}
         </motion.div>
       </motion.div>
+      <RematchDialog
+        open={rematchStatus === 'received'}
+        onAccept={acceptRematch}
+        onDecline={declineRematch}
+      />
     </PageShell>
+  );
+}
+
+function RematchDialog({ open, onAccept, onDecline }: { open: boolean; onAccept: () => void; onDecline: () => void }) {
+  return (
+    <AlertDialog open={open}>
+      <AlertDialogContent dir="rtl" className="font-arabic">
+        <AlertDialogHeader className="text-center sm:text-right">
+          <AlertDialogTitle className="font-arabic">خصمك يريد لعب جولة أخرى</AlertDialogTitle>
+          <AlertDialogDescription className="font-arabic">هل تريد الموافقة؟</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="sm:justify-center sm:space-x-reverse sm:space-x-2">
+          <AlertDialogCancel onClick={onDecline} className="font-arabic">
+            لا
+          </AlertDialogCancel>
+          <AlertDialogAction onClick={onAccept} className="font-arabic">
+            نعم
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

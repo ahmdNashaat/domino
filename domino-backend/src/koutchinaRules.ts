@@ -84,26 +84,22 @@ export function isBasra(table: DominoTile[], selected: DominoTile[], active: Dom
   return table.length > 0 && selected.length === table.length && table.every(t => selected.some(s => tilesEqual(t, s)));
 }
 
-export function checkBonbona(activeTile: DominoTile, opponentWinPile: DominoTile[]): boolean {
+export function checkBonbona(activeTile: DominoTile, opponentLastCapture: DominoTile | null): boolean {
   if (isJokerTile(activeTile)) return false;
-  if (!opponentWinPile || opponentWinPile.length === 0) return false;
+  if (!opponentLastCapture) return false;
+  if (isJokerTile(opponentLastCapture)) return false;
 
-  const lastTile = opponentWinPile[opponentWinPile.length - 1];
-  if (isJokerTile(lastTile)) return false;
-
-  const activeValue = getTileHandValue(activeTile);
-  const lastTileValue = getTileTableValue(lastTile);
-  return activeValue === lastTileValue;
+  return getTileHandValue(activeTile) === getTileHandValue(opponentLastCapture);
 }
 
 export function validateCapture(active: DominoTile, selected: DominoTile[], table: DominoTile[]) {
   if (selected.length === 0) {
-    return { ok: false, message: 'اختار أوراق من الطاولة' };
+    return { ok: false, message: 'اختر أوراق من الطاولة' };
   }
 
   for (const s of selected) {
     if (!table.some(t => tilesEqual(t, s))) {
-      return { ok: false, message: 'اختار أوراق من الطاولة' };
+      return { ok: false, message: 'اختر أوراق من الطاولة' };
     }
   }
 
@@ -136,6 +132,7 @@ export interface BonbonaValidation {
 export interface BonbonaOpponentState {
   winPile: DominoTile[];
   basraTiles: DominoTile[];
+  lastCapture: DominoTile | null;
   lastCaptureGroup: DominoTile[];
 }
 
@@ -151,13 +148,16 @@ export function validateBonbonaRequest(
     return { ok: false, message: 'الجوكر ما فيهوش بونبونة' };
   }
 
-  const lastTile = opponent.winPile[opponent.winPile.length - 1];
-  if (isJokerTile(lastTile)) {
+  const lastCapture = opponent.lastCapture;
+  if (!lastCapture) {
+    return { ok: false, message: 'البونبونة غير صحيحة' };
+  }
+  if (isJokerTile(lastCapture)) {
     return { ok: false, message: 'الجوكر ما فيهوش بونبونة' };
   }
 
   const lastGroup = opponent.lastCaptureGroup || [];
-  if (lastGroup.length === 0 || !lastGroup.some(t => tilesEqual(t, lastTile))) {
+  if (lastGroup.length === 0 || !lastGroup.some(t => tilesEqual(t, lastCapture))) {
     return { ok: false, message: 'البونبونة غير صحيحة' };
   }
 
@@ -168,11 +168,10 @@ export function validateBonbonaRequest(
     }
   }
 
-  const lastTileValue = getTileTableValue(lastTile);
-  if (getTileHandValue(activeTile) !== lastTileValue) {
+  if (!checkBonbona(activeTile, lastCapture)) {
     return { ok: false, message: 'قيمة كارتك لا تساوي قيمة آخر أكل الخصم' };
   }
 
-  const countsAsBasra = opponent.basraTiles.some(t => tilesEqual(t, lastTile));
-  return { ok: true, group: lastGroup, lastTile, countsAsBasra };
+  const countsAsBasra = opponent.basraTiles.some(t => tilesEqual(t, lastCapture));
+  return { ok: true, group: lastGroup, lastTile: lastCapture, countsAsBasra };
 }

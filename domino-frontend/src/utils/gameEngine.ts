@@ -143,20 +143,17 @@ export function isBasra(table: DominoTile[], selectedTableTiles: DominoTile[], a
   return selectedTableTiles.length === table.length && table.length > 0;
 }
 
-export function checkBonbona(activeTile: DominoTile, opponentWinPile: DominoTile[]): boolean {
+export function checkBonbona(activeTile: DominoTile, opponentLastCapture: DominoTile | null): boolean {
   // No bonbona for joker
   if (isJokerTile(activeTile)) return false;
-  
-  // No win pile or empty
-  if (!opponentWinPile || opponentWinPile.length === 0) return false;
-  
-  // Bonbona: active tile value must equal the LAST SINGLE TILE value captured by opponent
-  const lastTile = opponentWinPile[opponentWinPile.length - 1];
-  if (isJokerTile(lastTile)) return false;
-  const activeValue = getTileHandValue(activeTile);
-  const lastTileValue = getTileTableValue(lastTile);
-  
-  return activeValue === lastTileValue;
+
+  // No opponent last capture
+  if (!opponentLastCapture) return false;
+
+  // Bonbona: active tile hand value must equal the opponent's last active capture tile
+  if (isJokerTile(opponentLastCapture)) return false;
+
+  return getTileHandValue(activeTile) === getTileHandValue(opponentLastCapture);
 }
 
 export function calculateRoundScore(
