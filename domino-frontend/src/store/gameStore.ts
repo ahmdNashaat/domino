@@ -489,7 +489,6 @@ function executeBotMove(set: any, get: () => GameStore) {
     if (decision.bonbona && decision.bonbonaTiles.length > 0) {
       const captureGroup = [...decision.bonbonaTiles, activeTile];
       const newWinPile = [...currentState.opponent.winPile, ...captureGroup];
-      const newTable = [...currentState.table, activeTile];
       const newBasraCount = currentState.opponent.basraCount + (bonbonaIsBasra ? 1 : 0);
       const newBasraTiles = bonbonaIsBasra ? [...currentState.opponent.basraTiles, activeTile] : currentState.opponent.basraTiles;
       const updatedHistory = { ...nextHistory, opponent: pushHistory(nextHistory.opponent, captureGroup, activeTile) } as typeof history;
@@ -498,7 +497,7 @@ function executeBotMove(set: any, get: () => GameStore) {
         captureHistory: updatedHistory,
         opponent: { ...currentState.opponent, hand: newHand, winPile: newWinPile, basraCount: newBasraCount, basraTiles: newBasraTiles, lastCapture: activeTile, lastCaptureGroup: captureGroup },
         player: { ...currentState.player, ...playerUpdate },
-        table: newTable,
+        table: currentState.table,
         lastEvent: bonbonaIsBasra ? { type: 'basra_bonbona', playerId: 'opponent' } as GameEvent : { type: 'bonbona', playerId: 'opponent' } as GameEvent,
       });
     } else {

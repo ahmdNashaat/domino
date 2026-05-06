@@ -9,6 +9,22 @@ import {
 } from '@/utils/classicGameEngine';
 import { makeClassicBotDecision, getClassicBotDelay } from '@/utils/classicBotAI';
 
+const classicTimeouts = new Set<ReturnType<typeof setTimeout>>();
+
+function scheduleClassicTimeout(callback: () => void, delay: number) {
+  const timer = setTimeout(() => {
+    classicTimeouts.delete(timer);
+    callback();
+  }, delay);
+  classicTimeouts.add(timer);
+  return timer;
+}
+
+function clearClassicTimeouts() {
+  classicTimeouts.forEach(timer => clearTimeout(timer));
+  classicTimeouts.clear();
+}
+
 const createPlayer = (name: string, isBot: boolean): ClassicPlayer => ({
   name, hand: [], score: 0, cumulativeScore: 0, isBot,
 });
@@ -50,6 +66,16 @@ interface ClassicGameStore {
   resetGame: () => void;
 }
 
+function ensurePlayableHumanTurn(set: any, get: () => ClassicGameStore) {
+  let state = get();
+  const current = state.players[state.currentPlayerIndex];
+  if (state.phase === 'bot_thinking' && current && !current.isBot) {
+    set({ phase: 'playing' as ClassicGamePhase });
+    state = get();
+  }
+  return state;
+}
+
 export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
   phase: 'idle',
   gameMode: 'bot',
@@ -68,6 +94,7 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
   lastRoundSummary: null,
 
   startGame: (playerName, targetScore, botDifficulty, gameMode, opponentName, playerCount = 2, extraNames) => {
+    clearClassicTimeouts();
     const tiles = shuffleTiles(generateClassicTiles());
     const { hands, boneyard } = distributeClassicTilesMulti(tiles, playerCount);
 
@@ -128,12 +155,12 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
 
     // If starter is a bot, trigger bot turn
     if (players[starterIdx].isBot) {
-      setTimeout(() => triggerBotTurn(set, get), 800);
+      scheduleClassicTimeout(() => triggerBotTurn(set, get), 800);
     }
   },
 
   selectTile: (index) => {
-    const state = get();
+    const state = ensurePlayableHumanTurn(set, get);
     if (state.phase !== 'playing') return;
     const current = state.players[state.currentPlayerIndex];
     if (current.isBot) return;
@@ -141,7 +168,7 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
   },
 
   playTile: (end) => {
-    const state = get();
+    const state = ensurePlayableHumanTurn(set, get);
     if (state.phase !== 'playing') return;
     const idx = state.currentPlayerIndex;
     const current = state.players[idx];
@@ -172,11 +199,11 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
       lastEvent: { type: 'play', playerIndex: idx, tile, end },
     });
 
-    setTimeout(() => processAfterTurn(set, get), 600);
+    scheduleClassicTimeout(() => processAfterTurn(set, get), 600);
   },
 
   drawFromBoneyard: () => {
-    const state = get();
+    const state = ensurePlayableHumanTurn(set, get);
     if (state.phase !== 'playing') return;
     const idx = state.currentPlayerIndex;
     const current = state.players[idx];
@@ -202,7 +229,7 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
   },
 
   passTurn: () => {
-    const state = get();
+    const state = ensurePlayableHumanTurn(set, get);
     if (state.phase !== 'playing') return;
     const idx = state.currentPlayerIndex;
     const current = state.players[idx];
@@ -220,14 +247,16 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
     });
 
     if (newPassCount >= state.playerCount) {
-      setTimeout(() => endRound(set, get, -1), 800);
+      scheduleClassicTimeout(() => endRound(set, get, -1), 800);
       return;
     }
 
     const nextIdx = (idx + 1) % state.playerCount;
-    setTimeout(() => {
+    scheduleClassicTimeout(() => {
+      const latest = get();
+      if (latest.phase !== 'playing') return;
       set({ currentPlayerIndex: nextIdx, selectedTileIndex: -1, lastEvent: null });
-      if (get().players[nextIdx].isBot) {
+      if (get().players[nextIdx]?.isBot) {
         triggerBotTurn(set, get);
       }
     }, 600);
@@ -236,6 +265,7 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
   clearEvent: () => set({ lastEvent: null }),
 
   nextRound: () => {
+    clearClassicTimeouts();
     const state = get();
     const tiles = shuffleTiles(generateClassicTiles());
     const { hands, boneyard } = distributeClassicTilesMulti(tiles, state.playerCount);
@@ -271,11 +301,12 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
     });
 
     if (newPlayers[starterIdx].isBot) {
-      setTimeout(() => triggerBotTurn(set, get), 800);
+      scheduleClassicTimeout(() => triggerBotTurn(set, get), 800);
     }
   },
 
   resetGame: () => {
+    clearClassicTimeouts();
     set({
       phase: 'idle',
       gameMode: 'bot',
@@ -295,17 +326,23 @@ export const useClassicGameStore = create<ClassicGameStore>((set, get) => ({
 }));
 
 function triggerBotTurn(set: any, get: () => ClassicGameStore) {
-  set({ phase: 'bot_thinking' as ClassicGamePhase });
   const state = get();
-  const delay = getClassicBotDelay(state.botDifficulty);
+  const current = state.players[state.currentPlayerIndex];
+  if (state.phase !== 'playing' || !current?.isBot) return;
 
-  setTimeout(() => executeBotMove(set, get), delay);
+  const delay = getClassicBotDelay(state.botDifficulty);
+  set({ phase: 'bot_thinking' as ClassicGamePhase });
+
+  scheduleClassicTimeout(() => executeBotMove(set, get), delay);
 }
 
 function executeBotMove(set: any, get: () => ClassicGameStore) {
   const state = get();
   const idx = state.currentPlayerIndex;
-  const botHand = state.players[idx].hand;
+  const current = state.players[idx];
+  if (state.phase !== 'bot_thinking' || !current?.isBot) return;
+
+  const botHand = current.hand;
 
   const decision = makeClassicBotDecision(botHand, state.chainEnds, state.boneyard.length, state.botDifficulty);
 
@@ -323,14 +360,16 @@ function executeBotMove(set: any, get: () => ClassicGameStore) {
     });
 
     if (newPassCount >= state.playerCount) {
-      setTimeout(() => endRound(set, get, -1), 800);
+      scheduleClassicTimeout(() => endRound(set, get, -1), 800);
       return;
     }
 
     const nextIdx = (idx + 1) % state.playerCount;
-    setTimeout(() => {
+    scheduleClassicTimeout(() => {
+      const latest = get();
+      if (latest.phase !== 'playing') return;
       set({ currentPlayerIndex: nextIdx, selectedTileIndex: -1, lastEvent: null });
-      if (get().players[nextIdx].isBot) triggerBotTurn(set, get);
+      if (get().players[nextIdx]?.isBot) triggerBotTurn(set, get);
     }, 800);
     return;
   }
@@ -354,12 +393,14 @@ function executeBotMove(set: any, get: () => ClassicGameStore) {
     lastEvent: { type: 'play', playerIndex: idx, tile, end },
   });
 
-  setTimeout(() => processAfterTurn(set, get), 800);
+  scheduleClassicTimeout(() => processAfterTurn(set, get), 800);
 }
 
 function botDraw(set: any, get: () => ClassicGameStore) {
   const state = get();
   const idx = state.currentPlayerIndex;
+  const current = state.players[idx];
+  if (state.phase !== 'bot_thinking' || !current?.isBot) return;
 
   if (state.boneyard.length === 0) {
     const newPassCount = state.passCount + 1;
@@ -369,13 +410,15 @@ function botDraw(set: any, get: () => ClassicGameStore) {
       lastEvent: { type: 'pass', playerIndex: idx },
     });
     if (newPassCount >= state.playerCount) {
-      setTimeout(() => endRound(set, get, -1), 800);
+      scheduleClassicTimeout(() => endRound(set, get, -1), 800);
       return;
     }
     const nextIdx = (idx + 1) % state.playerCount;
-    setTimeout(() => {
+    scheduleClassicTimeout(() => {
+      const latest = get();
+      if (latest.phase !== 'playing') return;
       set({ currentPlayerIndex: nextIdx, selectedTileIndex: -1, lastEvent: null });
-      if (get().players[nextIdx].isBot) triggerBotTurn(set, get);
+      if (get().players[nextIdx]?.isBot) triggerBotTurn(set, get);
     }, 800);
     return;
   }
@@ -393,8 +436,9 @@ function botDraw(set: any, get: () => ClassicGameStore) {
   });
 
   if (canPlayTile(drawn, state.chainEnds)) {
-    setTimeout(() => {
+    scheduleClassicTimeout(() => {
       const s = get();
+      if (s.phase !== 'bot_thinking' || !s.players[idx]?.isBot) return;
       const hand = s.players[idx].hand;
       const lastIdx = hand.length - 1;
       const ends = getPlayableEnds(hand[lastIdx], s.chainEnds);
@@ -415,15 +459,16 @@ function botDraw(set: any, get: () => ClassicGameStore) {
         lastEvent: { type: 'play', playerIndex: idx, tile, end },
       });
 
-      setTimeout(() => processAfterTurn(set, get), 800);
+      scheduleClassicTimeout(() => processAfterTurn(set, get), 800);
     }, 500);
   } else {
-    setTimeout(() => botDraw(set, get), 400);
+    scheduleClassicTimeout(() => botDraw(set, get), 400);
   }
 }
 
 function processAfterTurn(set: any, get: () => ClassicGameStore) {
   const state = get();
+  if (state.phase !== 'playing') return;
   const idx = state.currentPlayerIndex;
   const current = state.players[idx];
 
@@ -447,6 +492,7 @@ function processAfterTurn(set: any, get: () => ClassicGameStore) {
 }
 
 function endRound(set: any, get: () => ClassicGameStore, finisherIndex: number) {
+  clearClassicTimeouts();
   const state = get();
   const hands = state.players.map(p => p.hand);
   const roundScore = calculateClassicRoundScoreMulti(hands, finisherIndex);

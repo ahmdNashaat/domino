@@ -173,7 +173,11 @@ export const useOnlineGameStore = create<OnlineGameState>((set, get) => ({
   rematchStatus: 'idle',
   rematchDeclined: false,
 
-  selectTile: (index) => set((s) => ({ selectedTileIndex: index === s.selectedTileIndex ? -1 : index })),
+  selectTile: (index) => {
+    const state = get();
+    if (state.variant !== 'classic' || !state.isMyTurn || state.phase !== 'playing') return;
+    set({ selectedTileIndex: index === state.selectedTileIndex ? -1 : index });
+  },
 
   selectTableTile: (tile) => {
     const state = get();

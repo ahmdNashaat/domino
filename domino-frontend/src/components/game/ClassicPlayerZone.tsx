@@ -1,4 +1,4 @@
-import { forwardRef } from 'react';
+import { forwardRef, MouseEvent } from 'react';
 import { DominoTile } from '@/types/contracts';
 import { cn } from '@/lib/utils';
 import FaceDownHand from './FaceDownHand';
@@ -23,9 +23,14 @@ const ClassicPlayerZone = forwardRef<HTMLDivElement, ClassicPlayerZoneProps>(
     const isSide = position === 'left' || position === 'right';
     const isTop = position === 'top';
 
+    const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+      event.stopPropagation();
+    };
+
     return (
       <div
         ref={ref}
+        onClick={handleClick}
         className={cn(
           'relative flex items-center gap-2 px-3 py-2 rounded-2xl',
           'bg-secondary/40 border border-border/60 backdrop-blur-sm',

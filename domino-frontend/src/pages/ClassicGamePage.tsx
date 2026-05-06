@@ -46,12 +46,14 @@ export default function ClassicGamePage() {
 
   // showEndChoice = waiting for player to click a chain end
   const [showEndChoice, setShowEndChoice] = useState(false);
+  const [pendingTileIndex, setPendingTileIndex] = useState<number | null>(null);
 
   const [actionMap, setActionMap] = useState<Record<number, PlayerActionState>>({});
   const [drawAnim, setDrawAnim] = useState<DrawAnim | null>(null);
   const redirectRef = useRef(false);
   const idleRedirectRef = useRef(false);
   const actionTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const boneyardRef = useRef<HTMLDivElement>(null);
   const topZoneRef = useRef<HTMLDivElement>(null);
@@ -103,16 +105,37 @@ export default function ClassicGamePage() {
   useEffect(() => {
     return () => {
       Object.values(actionTimers.current).forEach((timer) => clearTimeout(timer));
+      if (autoPlayTimerRef.current) {
+        clearTimeout(autoPlayTimerRef.current);
+        autoPlayTimerRef.current = null;
+      }
     };
   }, []);
 
   const currentIdx = state.currentPlayerIndex;
   const currentPlayer = state.players[currentIdx];
+  const effectivePhase =
+    state.phase === 'bot_thinking' && currentPlayer && !currentPlayer.isBot ? 'playing' : state.phase;
   const isFriend = state.gameMode === 'friend';
   const bottomIndex = isFriend ? currentIdx : 0;
   const isHumanTurn = currentIdx === 0;
-  const canAct = state.phase === 'playing' && (isFriend || isHumanTurn);
+  const canAct = effectivePhase === 'playing' && (isFriend || isHumanTurn);
   const playerCount = state.players.length;
+
+  useEffect(() => {
+    if (state.phase === 'bot_thinking' && currentPlayer && !currentPlayer.isBot) {
+      useClassicGameStore.setState({ phase: 'playing' });
+    }
+  }, [state.phase, currentPlayer]);
+
+  useEffect(() => {
+    setShowEndChoice(false);
+    setPendingTileIndex(null);
+    if (autoPlayTimerRef.current) {
+      clearTimeout(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
+    }
+  }, [state.roundNumber]);
 
   const rotatedIndices = useMemo(
     () => Array.from({ length: playerCount }, (_, i) => (bottomIndex + i) % playerCount),
@@ -212,10 +235,10 @@ export default function ClassicGamePage() {
 
   let statusText: string | undefined;
   let statusPulse = false;
-  if (state.phase === 'bot_thinking') {
+  if (effectivePhase === 'bot_thinking') {
     statusText = 'البوت يفكر...';
     statusPulse = true;
-  } else if (isFriend && state.phase === 'playing') {
+  } else if (isFriend && effectivePhase === 'playing') {
     statusText = `دور ${currentPlayer.name}`;
   }
 
@@ -226,41 +249,72 @@ export default function ClassicGamePage() {
 
     const hand = state.players[bottomIndex].hand;
     const tile = hand[index];
-    if (!canPlayTile(tile, displayChainEnds)) {
-      state.selectTile(index);
+    if (!tile) return;
+
+    const wasSelected = state.selectedTileIndex === index;
+    const playable = canPlayTile(tile, displayChainEnds);
+    state.selectTile(index);
+    if (wasSelected) {
+      setShowEndChoice(false);
+      setPendingTileIndex(null);
+      if (autoPlayTimerRef.current) {
+        clearTimeout(autoPlayTimerRef.current);
+        autoPlayTimerRef.current = null;
+      }
       return;
     }
+    if (!playable) return;
 
     const ends = getPlayableEnds(tile, displayChainEnds);
-    state.selectTile(index);
 
     if (needsEndChoice(tile, displayChainEnds, state.chain.length)) {
-      // Show glow on chain ends — player clicks the end they want
+      if (autoPlayTimerRef.current) {
+        clearTimeout(autoPlayTimerRef.current);
+        autoPlayTimerRef.current = null;
+      }
+      setPendingTileIndex(index);
       setShowEndChoice(true);
     } else {
-      // Auto-play: one end OR both ends same value → pick randomly among valid
-      setTimeout(() => {
+      setShowEndChoice(false);
+      setPendingTileIndex(index);
+      if (autoPlayTimerRef.current) {
+        clearTimeout(autoPlayTimerRef.current);
+      }
+      autoPlayTimerRef.current = setTimeout(() => {
         playDropSound();
         const s = useClassicGameStore.getState();
-        if (s.selectedTileIndex === index) {
+        const actingPlayer = s.players[s.currentPlayerIndex];
+        if (s.phase === 'playing' && actingPlayer && !actingPlayer.isBot && s.selectedTileIndex === index) {
           const randomEnd = ends[Math.floor(Math.random() * ends.length)] as ChainEnd;
           s.playTile(randomEnd);
         }
+        setPendingTileIndex(null);
+        autoPlayTimerRef.current = null;
       }, 150);
     }
   };
 
   // Called when player clicks a highlighted chain-end tile
   const handleEndClick = (end: ChainEnd) => {
-    if (!showEndChoice || state.selectedTileIndex < 0) return;
+    if (!showEndChoice || pendingTileIndex === null || state.selectedTileIndex < 0) return;
+    if (autoPlayTimerRef.current) {
+      clearTimeout(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
+    }
     playDropSound();
     state.playTile(end);
     setShowEndChoice(false);
+    setPendingTileIndex(null);
   };
 
   // Cancel end choice if player clicks elsewhere
   const handleCancelEndChoice = () => {
+    if (autoPlayTimerRef.current) {
+      clearTimeout(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
+    }
     setShowEndChoice(false);
+    setPendingTileIndex(null);
     state.selectTile(-1); // deselect
   };
 
@@ -274,7 +328,6 @@ export default function ClassicGamePage() {
       ref={boardRef}
       className="min-h-screen bg-background flex flex-col overflow-hidden relative"
       dir="rtl"
-      onClick={showEndChoice ? handleCancelEndChoice : undefined}
     >
       {/* Block/event overlay */}
       <AnimatePresence>
@@ -421,7 +474,7 @@ export default function ClassicGamePage() {
           <div
             className="flex-1 felt-bg rounded-xl flex flex-col relative overflow-hidden"
             style={{ minHeight: 0 }}
-            onClick={e => e.stopPropagation()} // prevent cancel when clicking table
+            onClick={showEndChoice ? handleCancelEndChoice : undefined}
           >
             {state.boneyard.length > 0 && (
               <div ref={boneyardRef} className="absolute left-2 top-2 flex flex-col items-center gap-1 z-10">

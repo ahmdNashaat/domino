@@ -174,6 +174,56 @@ function hasPlayableTile(hand: DominoTile[], chainEnds: [number, number]): boole
   return hand.some(t => canPlayTile(t, chainEnds));
 }
 
+function makeClassicBotDecision(
+  hand: DominoTile[],
+  chainEnds: [number, number],
+  boneyardCount: number
+): { action: 'play' | 'draw' | 'pass'; tileIndex?: number; end?: 'left' | 'right' } {
+  const playable = hand
+    .map((tile, index) => ({ tile, index, ends: getPlayableEnds(tile, chainEnds) }))
+    .filter(p => p.ends.length > 0);
+
+  if (playable.length === 0) {
+    if (boneyardCount > 0) return { action: 'draw' };
+    return { action: 'pass' };
+  }
+
+  const numberCount: Record<number, number> = {};
+  for (const tile of hand) {
+    numberCount[tile[0]] = (numberCount[tile[0]] || 0) + 1;
+    numberCount[tile[1]] = (numberCount[tile[1]] || 0) + 1;
+  }
+
+  let bestScore = -Infinity;
+  let bestPlay: { index: number; end: 'left' | 'right' } | null = null;
+
+  for (const p of playable) {
+    for (const end of p.ends) {
+      let exposedNumber: number;
+      if (end === 'left') {
+        exposedNumber = p.tile[0] === chainEnds[0] ? p.tile[1] : p.tile[0];
+      } else {
+        exposedNumber = p.tile[1] === chainEnds[1] ? p.tile[0] : p.tile[1];
+      }
+
+      let score = tileSum(p.tile);
+      score += (numberCount[exposedNumber] || 0) * 3;
+      if (isDouble(p.tile)) score += 5;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestPlay = { index: p.index, end };
+      }
+    }
+  }
+
+  if (bestPlay) {
+    return { action: 'play', tileIndex: bestPlay.index, end: bestPlay.end };
+  }
+
+  return { action: 'play', tileIndex: playable[0].index, end: playable[0].ends[0] };
+}
+
 function isGameBlockedMulti(
   hands: DominoTile[][],
   boneyard: DominoTile[],
@@ -800,25 +850,31 @@ function clearDisconnectedPlayers(room: Room) {
 }
 
 function autoPlayClassicTimeout(room: Room) {
+  if (room.phase !== 'playing') return;
   const currIdx = room.currentPlayerIndex;
   const curr = room.players[currIdx];
   if (!curr) return;
 
-  const playable: { index: number; tile: DominoTile; ends: ('left' | 'right')[] }[] = [];
-  curr.hand.forEach((tile, idx) => {
-    if (canPlayTile(tile, room.chainEnds)) {
-      playable.push({ index: idx, tile, ends: getPlayableEnds(tile, room.chainEnds) });
-    }
-  });
+  const emitClassicBlocked = () => {
+    room.phase = 'blocked';
+    clearTurnTimer(room);
+    sendGameState(room, { type: 'block', message: 'Game blocked' });
+    setTimeout(() => endRound(room, -1), 1000);
+  };
 
-  if (playable.length > 0) {
-    const pick = playable[Math.floor(Math.random() * playable.length)];
-    const end = pick.ends[Math.floor(Math.random() * pick.ends.length)];
-    room.chain = placeTile(room.chain, pick.tile, end);
+  const decision = makeClassicBotDecision(curr.hand, room.chainEnds, room.boneyard.length);
+
+  if (decision.action === 'play') {
+    const tileIndex = decision.tileIndex ?? -1;
+    const end = decision.end;
+    if (tileIndex < 0 || tileIndex >= curr.hand.length || !end) return;
+
+    const tile = curr.hand[tileIndex];
+    room.chain = placeTile(room.chain, tile, end);
     room.chainEnds = getChainEnds(room.chain);
-    curr.hand.splice(pick.index, 1);
+    curr.hand.splice(tileIndex, 1);
 
-    sendGameState(room, { type: 'play', playerIndex: currIdx, tile: pick.tile, end });
+    sendGameState(room, { type: 'play', playerIndex: currIdx, tile, end });
 
     if (curr.hand.length === 0) {
       endRound(room, currIdx);
@@ -826,10 +882,7 @@ function autoPlayClassicTimeout(room: Room) {
     }
 
     if (isGameBlockedMulti(room.players.map(p => p.hand), room.boneyard, room.chainEnds)) {
-      room.phase = 'blocked';
-      clearTurnTimer(room);
-      sendGameState(room, { type: 'block', message: 'Game blocked' });
-      setTimeout(() => endRound(room, -1), 1000);
+      emitClassicBlocked();
       return;
     }
 
@@ -837,21 +890,45 @@ function autoPlayClassicTimeout(room: Room) {
     return;
   }
 
-  if (room.boneyard.length > 0) {
-    const drawn = room.boneyard.pop()!;
+  if (decision.action === 'draw') {
+    if (room.boneyard.length === 0) return;
+    const drawn = room.boneyard.shift()!;
     curr.hand.push(drawn);
     sendGameState(room, { type: 'draw', playerIndex: currIdx, count: 1 });
-    advanceTurnClassic(room);
+
+    if (canPlayTile(drawn, room.chainEnds)) {
+      const drawIndex = curr.hand.length - 1;
+      const ends = getPlayableEnds(drawn, room.chainEnds);
+      const end = ends[0];
+
+      room.chain = placeTile(room.chain, drawn, end);
+      room.chainEnds = getChainEnds(room.chain);
+      curr.hand.splice(drawIndex, 1);
+
+      sendGameState(room, { type: 'play', playerIndex: currIdx, tile: drawn, end });
+
+      if (curr.hand.length === 0) {
+        endRound(room, currIdx);
+        return;
+      }
+
+      if (isGameBlockedMulti(room.players.map(p => p.hand), room.boneyard, room.chainEnds)) {
+        emitClassicBlocked();
+        return;
+      }
+
+      advanceTurnClassic(room);
+      return;
+    }
+
+    autoPlayClassicTimeout(room);
     return;
   }
 
   sendGameState(room, { type: 'pass', playerIndex: currIdx });
 
   if (isGameBlockedMulti(room.players.map(p => p.hand), room.boneyard, room.chainEnds)) {
-    room.phase = 'blocked';
-    clearTurnTimer(room);
-    sendGameState(room, { type: 'block', message: 'Game blocked' });
-    setTimeout(() => endRound(room, -1), 1000);
+    emitClassicBlocked();
     return;
   }
 
@@ -886,7 +963,19 @@ function startRound(room: Room) {
         starterIdx = i;
       }
     });
-    if (highestDouble < 0) starterIdx = Math.floor(Math.random() * room.players.length);
+    if (highestDouble < 0) {
+      if (room.roundNumber > 1) {
+        let minScore = Infinity;
+        room.players.forEach((p, i) => {
+          if (p.cumulativeScore < minScore) {
+            minScore = p.cumulativeScore;
+            starterIdx = i;
+          }
+        });
+      } else {
+        starterIdx = Math.floor(Math.random() * room.players.length);
+      }
+    }
 
     room.currentPlayerIndex = starterIdx;
     room.activeCardIndex = -1;
@@ -1193,7 +1282,7 @@ io.on('connection', (socket) => {
           socket.emit('game:invalid', { message: 'You have a playable tile' });
           return;
         }
-        const drawn = room.boneyard.pop()!;
+        const drawn = room.boneyard.shift()!;
         curr.hand.push(drawn);
         sendGameState(room, { type: 'draw', playerIndex: currIdx, count: 1 });
         return;

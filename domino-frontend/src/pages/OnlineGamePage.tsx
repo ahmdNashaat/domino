@@ -694,6 +694,7 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
   const [actionMap, setActionMap] = useState<Record<string, PlayerActionState>>({});
   const [drawAnim, setDrawAnim] = useState<DrawAnim | null>(null);
   const actionTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const boneyardRef = useRef<HTMLDivElement>(null);
   const topZoneRef = useRef<HTMLDivElement>(null);
@@ -748,8 +749,21 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
   useEffect(() => {
     return () => {
       Object.values(actionTimers.current).forEach((timer) => clearTimeout(timer));
+      if (autoPlayTimerRef.current) {
+        clearTimeout(autoPlayTimerRef.current);
+        autoPlayTimerRef.current = null;
+      }
     };
   }, []);
+
+  useEffect(() => {
+    setShowEndChoice(false);
+    setPendingTileIndex(null);
+    if (autoPlayTimerRef.current) {
+      clearTimeout(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
+    }
+  }, [state.roundNumber]);
 
   const currentPlayer = state.classicPlayers.find(p => p.id === state.currentPlayerId);
   const isMyTurn = state.isMyTurn && state.phase === 'playing';
@@ -857,28 +871,54 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
     const wasSelected = state.selectedTileIndex === index;
     const playable = canPlayTile(tile, state.chainEnds);
     state.selectTile(index);
-    if (wasSelected) return;
+    if (wasSelected) {
+      setShowEndChoice(false);
+      setPendingTileIndex(null);
+      if (autoPlayTimerRef.current) {
+        clearTimeout(autoPlayTimerRef.current);
+        autoPlayTimerRef.current = null;
+      }
+      return;
+    }
     if (!playable) return;
 
     const ends = getPlayableEnds(tile, state.chainEnds);
 
     if (needsEndChoice(tile, state.chainEnds, state.chain.length)) {
-      // يحتاج اختيار → ننتظر نقر اللاعب على أحد طرفي السلسلة
+      if (autoPlayTimerRef.current) {
+        clearTimeout(autoPlayTimerRef.current);
+        autoPlayTimerRef.current = null;
+      }
       setPendingTileIndex(index);
       setShowEndChoice(true);
     } else {
-      // لا يحتاج اختيار → نلعب تلقائياً (عشوائي إذا كان هناك أكثر من طرف)
-      setTimeout(() => {
+      setShowEndChoice(false);
+      setPendingTileIndex(index);
+      if (autoPlayTimerRef.current) {
+        clearTimeout(autoPlayTimerRef.current);
+      }
+      autoPlayTimerRef.current = setTimeout(() => {
         playDropSound();
+        const liveState = useOnlineGameStore.getState();
+        if (!liveState.isMyTurn || liveState.phase !== 'playing' || liveState.selectedTileIndex !== index) {
+          setPendingTileIndex(null);
+          autoPlayTimerRef.current = null;
+          return;
+        }
         const randomEnd = ends[Math.floor(Math.random() * ends.length)] as 'left' | 'right';
         sendAction({ type: 'play', tileIndex: index, end: randomEnd });
         setPendingTileIndex(null);
+        autoPlayTimerRef.current = null;
       }, 150);
     }
   };
 
   const handlePlayEnd = (end: 'left' | 'right') => {
     if (pendingTileIndex === null) return;
+    if (autoPlayTimerRef.current) {
+      clearTimeout(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
+    }
     playDropSound();
     sendAction({ type: 'play', tileIndex: pendingTileIndex, end });
     setShowEndChoice(false);
@@ -886,6 +926,10 @@ function OnlineClassicGame({ connected }: { connected: boolean }) {
   };
 
   const handleCancelEndChoice = () => {
+    if (autoPlayTimerRef.current) {
+      clearTimeout(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
+    }
     setShowEndChoice(false);
     state.selectTile(-1);
     setPendingTileIndex(null);
